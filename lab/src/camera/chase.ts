@@ -29,8 +29,8 @@ export const defaultChase: ChaseParams = {
   yawLag: 0.4,
   heightLag: 0.2,
   rollFollow: 0.2,
-  aimHeight: 0.9,
-  aimAhead: 1.5,
+  aimHeight: 1.0,
+  aimAhead: 0.6,
 };
 
 export interface ChaseSubject {
