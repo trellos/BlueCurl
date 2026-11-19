@@ -33,6 +33,9 @@ window.__marks = __marks;
 const qs = new URLSearchParams(location.search);
 const num = (k, d) => { const n = Number.parseFloat(qs.get(k)); return Number.isFinite(n) ? n : d; };
 const CAPTURE = qs.has('capture');
+// ?fastload: skip the stutter-avoidance rehearsals (warm views / animated frames / settle frames).
+// Rendering is unchanged; for captures on slow software renderers.
+const FASTLOAD = qs.has('fastload');
 const START_T = num('t', 0);
 let speed = Math.min(2, Math.max(0.05, num('speed', 1)));
 let paused = qs.has('paused') || CAPTURE;
@@ -755,22 +758,24 @@ async function start() {
   // Draw the actual render chain, including both lip slots and every post pass.
   // compileAsync alone cannot warm texture uploads, FFT passes or framebuffer state.
   frameDt = 0;
-  for (const t of [2.85, 3.15, 3.55]) { simT = t; render(); await drainGPU(); await breathe(); }
+  if (!FASTLOAD) for (const t of [2.85, 3.15, 3.55]) { simT = t; render(); await drainGPU(); await breathe(); }
+  mark('prewarm-renders');
   if(surfaceProbe){
     surfaceProbe.request(renderer,camera,simT,controls ? controls.pos.x : camera.position.x,-10,true);
     await surfaceProbe.ready;
   }
-  await warmViews();
-  await warmAnimatedFrames();
+  if (!FASTLOAD) { await warmViews(); await warmAnimatedFrames(); }
   mark('render-passes-warmed');
+  mark('sim-warmup-start');
   await warmSimulation(START_T);
+  mark('sim-warmed');
   loading('Finishing the light', 91);
   post.meter.reset();
   // Present repeated final-size frames while still covered. Keep simulation
   // time fixed and wait for both the GPU and the browser's paint cadence.
   // If a resize landed during startup, prepare its new attachments here too.
   let settled = 0;
-  while (settled < 8) {
+  while (settled < (FASTLOAD ? 1 : 8)) {
     await nextPaint();
     const revision = targetRevision, programs = renderer.info.programs.length;
     if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = null; resize(); }

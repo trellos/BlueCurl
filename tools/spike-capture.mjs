@@ -51,7 +51,7 @@ await page.goto(url, { waitUntil: 'commit', timeout: TIMEOUT });
 let lastStatus = '';
 const poll = setInterval(async () => {
   try {
-    const s = await page.evaluate(() => `${document.getElementById('load-status')?.textContent} ${document.getElementById('load-percent')?.textContent}`);
+    const s = await page.evaluate(() => `${document.getElementById('load-status')?.textContent} ${document.getElementById('load-percent')?.textContent} marks=${JSON.stringify(window.__marks || [])}`);
     if (s !== lastStatus) { lastStatus = s; console.log(`[load ${((Date.now() - tLoad) / 1000).toFixed(0)}s] ${s}`); }
   } catch {}
 }, 15000);
