@@ -1,7 +1,10 @@
 // BlueCurl Surf Lab entry point.
 import { Lab } from './app.ts';
+import { BoardSystem } from './boardSystem.ts';
 
 const lab = new Lab(document.getElementById('app')!);
+const board = new BoardSystem();
+lab.addSystem(board);
 (window as unknown as { __lab: Lab }).__lab = lab;
 lab.start().catch((e) => {
   console.error(e);
