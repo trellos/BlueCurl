@@ -62,7 +62,15 @@ export class RiderSystem implements LabSystem {
     }
   }
 
+  /** Board speed while prone (m/s); the riding trim speed is restored after the pop-up. */
+  paddleSpeed = 2.8;
+  private rideSpeed = -1;
+
   tick(lab: Lab, _t: number, dt: number): void {
+    const mp = lab.motion.params;
+    if (this.rideSpeed < 0) this.rideSpeed = mp.trimSpeed;
+    if (this.rider.phase === 'paddle') mp.trimSpeed = this.paddleSpeed;
+    else if (mp.trimSpeed === this.paddleSpeed) mp.trimSpeed = this.rideSpeed; // the wave picks the board up
     this.rider.tick(dt, lab.motion);
   }
 
