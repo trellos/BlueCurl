@@ -14,7 +14,7 @@ Evidence labels follow `_brief.md`: **[Verified]** (I read the code, licence or 
 
 - **Do not build the surfer on `AnimationMixer`.** Use three.js for loading, clip data (`KeyframeTrack` interpolants), skinning and rendering. Write a small custom **pose pipeline** on flat `Float32Array` local-pose buffers: sample, blend, additive layers, inertialization, own forward kinematics (FK), IK, procedural passes, secondary motion, then write to the bones once per frame. One reason is a verified mixer quirk: a bone is only rewritten when the mixed value changes, so procedural edits leak across frames. Another is that the mixer has no blend spaces, masks, inertialization or IK. **[Assessment, based on Verified code]**
 - **The core of believability is a board-frame balance model, not clips.** Feet are locked to anchors on the board deck. The pelvis and upper body are driven by the **apparent-gravity vector** `f = a − g` at the stance, expressed in the board frame. That vector passes through **spring-dampers**: they lag behind unplanned board accelerations (inertia) and lead planned ones (anticipation from the intent stream). Ankles and knees absorb board pitch and roll automatically through **analytic two-bone IK**. The head is world-stabilized with a level horizon. This one mechanism yields centripetal lean (`atan(v²/(r·g))`), lean on the wave face, chop absorption and the "doesn't rotate rigidly with the board" property. **[Assessment]**
-- **Buffer the 500 ms input stream.** Play it out about **1.0 s behind real time**. Because this is a visualization, not a game, the delay is invisible to viewers. It makes interpolation smooth and enables lookahead, so the planner can schedule maneuvers and pop-ups at phase-compatible moments and the body can anticipate turns. **[Assessment]**
+- **Apply the 500 ms input stream with no added delay** (revised; see §8.1). Springs give continuity. Anticipation comes from simulating our *own* planned board path 0.2–0.4 s ahead, not from delaying the input. The earlier 1 s playout-buffer proposal was rejected by the project owner.
 - **Libraries.** Physics: **Jolt** (`jolt-physics`, MIT) for wipeout ragdolls, because it has a real `Ragdoll` with swing-twist limits and `DriveToPoseUsingMotors`. Hair springs: **`@pixiv/three-vrm-springbone`** (MIT). Everything else is custom and small: two-bone IK, aim chains, springs, inertialization, the leash rope, the pose blender. Estimated total animation CPU is **< 0.5 ms/frame** on desktop Chrome, plus 0.1–0.3 ms while the ragdoll is active. **[Assessment; measure in experiment E1]**
 
 ---
@@ -178,14 +178,34 @@ Why this does not look like a passenger. A pure lag model (body reacts only afte
 
 ## 8. From the 500 ms input stream to animation parameters
 
-### 8.1 Playout buffer (recommended)
+### 8.1 Input handling: zero added delay (revised 2026-11-19)
 
-- Timestamp the incoming samples. Render at `t_play = t_now − D` with **D ≈ 1.0 s** (two samples), configurable. The visualization has no interactive user, so latency costs nothing visually. If an operator UI shows the raw stream, show it delayed by D as well. **[Assessment]**
-- This gives:
-  1. **Interpolation** between known samples. Use monotone cubic (PCHIP) for continuous values; never step.
-  2. **Look-ahead** of 0.5–1.0 s for anticipation, maneuver scheduling and pop-up phase matching.
-  3. **Non-causal smoothing** of derived board kinematics (§7.2).
-- Underrun (late packet): extrapolate with a decaying velocity (dead-reckoning). When the data arrives, correct through the springs. Never jump. Adapt D slowly if jitter is high, with a time-warp of ±5%.
+**Decision (project owner):** a 1 s playout delay is unacceptable. The original proposal
+buffered the stream about 1 s so it could interpolate between samples and look ahead. That
+was over-cautious. **Anticipation does not need future *input*.** The surfer's future board
+path comes from our own planner and board sim, so we can simulate it ahead. Only the
+*response to new input* is causal.
+
+- **Apply each sample immediately.** A new sample retargets the parameter springs: stability,
+  performance, intensity. Impulse events fire at once.
+- The springs are what make the motion continuous, so no buffering is needed for smoothness.
+  Effective visible response is about 100–250 ms, set by spring half-lives and chosen per
+  channel. That is roughly a human reaction time, so it reads as the surfer reacting, not as lag.
+- **Anticipation from the plan, not the input.** When the planner commits a maneuver, it runs
+  the board sim **0.2–0.4 s ahead** on its own commanded trajectory. The body leads planned
+  turns using that predicted path.
+- **Maneuver commitment** is a planner decision made at decision points, using the latest
+  performance state. A maneuver already under way plays out, or is softened or aborted through
+  springs if the stream drops sharply.
+- **Board-kinematics smoothing:** use the board sim's analytic accelerations (we own the sim),
+  or a short causal filter. No centred derivatives over future input.
+- **Late or missing packet:** hold the last value with a slow decay toward neutral, and correct
+  through the springs when data resumes. Never jump.
+- **Optional:** a small jitter buffer of ≤ 50–100 ms only if network jitter proves visible in
+  practice. Off by default.
+
+The playout-buffer text below (diagram, update order, risk table) refers to the superseded
+design. Read "playout buffer" as "input sampler with zero added delay".
 
 ### 8.2 Signal classes
 

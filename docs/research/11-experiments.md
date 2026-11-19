@@ -23,14 +23,13 @@ given in brackets.
 
 These must be answered **before any purchase or capture spend**:
 
-- Is BlueCurl commercial? Where will it be distributed or used? This determines whether the
-  EU/UK/South Korea exclusions of Tencent models, and the SMPL / non-commercial HMR
-  restrictions, matter.
+- Settled: not commercial initially, possibly later. Nothing from a non-commercial or
+  territory-restricted tool goes into shipped data (README, Licensing).
 - Ask Epic in writing whether MetaHuman meshes and textures may be delivered to browsers as
   glTF in a public three.js app, and what protection is required. Ask Reallusion the same
   question for CC5 (EULA §6.3).
-- Agree ownership with the water team. Proposed: **board world motion and the surfing sim are
-  BlueCurl's**; wave-state queries and the lighting/post contract are shared.
+- Settled: board world motion and the surfing sim are ours; the wave renderer supplies
+  wave-state queries, and we define the lighting interface it adopts.
 
 ### X1 — Moving-board rig test (2–3 days) **[05 E1; 10 L0–L1]** — *highest priority*
 
@@ -129,7 +128,7 @@ height, lag) are agreed and written into the Lab presets.
 
 **Answers:** U5. Treat the previs as **look and camera only**, never as motion truth.
 
-### X8 — Integration seam with ShoreBreak (≈4 days, jointly with the water team) **[06 E1, E4]**
+### X8 — Integration seam with ShoreBreak (≈4 days, in a ShoreBreak fork) **[06 E1, E4]**
 
 - Ambient-consistency test: a grey sphere, a white card and a skin sphere under both
   ambient options.
@@ -137,8 +136,8 @@ height, lag) are agreed and written into the Lab presets.
   water-bounce fills.
 - Check submerged-leg refraction, whitewater depth-test, contact light and GPU cost at 1440p.
 
-**Pass:** the surfer doesn't look composited, and the lighting contract is signed off by both
-teams.
+**Pass:** the surfer doesn't look composited, and the lighting contract is agreed and
+documented.
 
 **Answers:** U6.
 
@@ -178,7 +177,7 @@ gantt
   section Look
   X7 previs bake-off (external)       :x7, 2026-11-23, 7d
   X6 character bake-off               :x6, after x1, 7d
-  X8 ShoreBreak seam (with water team):x8, after x6, 4d
+  X8 ShoreBreak seam:x8, after x6, 4d
   section Secondary
   X10 board kernel                    :x10, 2026-11-30, 4d
   X9 Cascadeur cost probe             :x9, after x7, 3d

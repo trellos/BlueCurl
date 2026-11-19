@@ -59,9 +59,9 @@ directly before buying anything.
    commercially usable state of the art. GVHMR, WHAM and the other SMPL-based tools are not.
 3. **Don't build the surfer on three.js's `AnimationMixer`.** It writes bones only when values
    change, which breaks IK and procedural layers. It also has no blend spaces, masks or
-   inertialization. Use a small custom pose pipeline. Buffer the 500 ms stream about **1 s**
-   behind real time: that gives smooth interpolation, look-ahead and anticipation at no visible
-   cost. Use Jolt (MIT) for wipeout ragdolls.
+   inertialization. Use a small custom pose pipeline. Apply the 500 ms stream with **no added
+   delay**: springs give continuity, and anticipation comes from simulating our own planned
+   board path ahead. Use Jolt (MIT) for wipeout ragdolls.
 4. **Character:** no good-looking vendor human is clearly licensed for shipping a raw,
    extractable GLB to the public web.
    - **MetaHuman** has the best anatomy and deformation and is free, and has been usable
@@ -87,10 +87,11 @@ directly before buying anything.
 
    Rejected: Google 3D Tiles (terms), bare HDRI backdrops, Gaussian-splat backdrops,
    volumetric clouds.
-7. **Lighting must be co-owned with the water team.** ShoreBreak's sky is a LUT fitted to *one*
-   phone clip at one sun angle, and its post-processing emulates a *phone camera*. The surfer
-   should render into ShoreBreak's HDR target before the water pass, lit by one shared sun, sky
-   and haze source. The post chain should get a "cinema" look profile.
+7. **Lighting needs one source of truth across the scene.** ShoreBreak's sky is a LUT fitted to
+   *one* phone clip at one sun angle, and its post-processing emulates a *phone camera*. The
+   surfer should render into the wave renderer's HDR target before the water pass, lit by one
+   sun, sky and haze source. Post-processing should get a "cinema" look profile. We define this
+   interface (06 §B8); the wave renderer adopts it at integration.
 8. **AI tools.** Production-ready for concept stills and look/camera previs (Kling 4.0,
    Seedance 2.5, Veo 3.1; Nano Banana Pro / gpt-image for stills). Usable with cleanup for
    textures and rocks. **Not viable** for the rigged human, surfboards, vegetation, terrain or
@@ -115,13 +116,14 @@ directly before buying anything.
 |---|---|---|---|
 | 2026-11-19 | Store all riding animation in the **board frame B**; board world motion and body-in-board motion are separate channels, coupled at runtime by a procedural layer | Proposed | 04 §1, 05 §7 |
 | 2026-11-19 | **Board frame convention:** metres, +Y deck normal, +Z toward the nose, +X toward the left rail, origin on the stringer. This follows glTF's "+Z forward" convention. Doc 04 §1 used +X nose; **03/05's convention wins**. | Proposed | 03 §6, 05 §7.1 |
-| 2026-11-19 | **Board motion through the world (the surfing sim) belongs to BlueCurl.** The water team provides wave-state queries. Doc 05 calls the board sim "other team"; read that as "a separate module with a defined interface". | Proposed; confirm with water team | Brief: everything except ocean and wave rendering is ours |
+| 2026-11-19 | **Board motion through the world (the surfing sim) is ours.** Wave state comes from the wave renderer through a query interface. Where docs 05/10 say "other team" or "water team", read it as "the wave renderer module". | Adopted | Brief: everything except ocean and wave rendering is ours |
 | 2026-11-19 | Custom pose pipeline; `AnimationMixer` not used for the surfer | Proposed | 05 §1 |
-| 2026-11-19 | Playout buffer: render the stream about 1.0 s behind real time | Proposed | 05 §8.1 |
+| 2026-11-19 | **No added input latency.** Samples apply immediately; springs give continuity (~100–250 ms visible response); anticipation comes from simulating our own planned board path 0.2–0.4 s ahead. The 1 s playout buffer was rejected by the owner. | Adopted | 05 §8.1 |
 | 2026-11-19 | Wipeout physics: Jolt (`jolt-physics`, MIT); Rapier as fallback; cannon-es and ammo.js rejected | Proposed | 05 §5 |
 | 2026-11-19 | Procedural `boardkit` (clean-room); don't port BoardCAD (GPL) | Proposed | 03 §8 |
 | 2026-11-19 | Character milestone 1: MetaHuman vs CC5 bake-off; open-topology "BlueCurl body" for production | Proposed; needs X0 answers | 02 §7 |
-| 2026-11-19 | Lighting contract: ShoreBreak relative units; surfer in the opaque HDR pass; one shared sky/sun/haze; single post chain with look profiles | Proposed; needs water team | 06 §B8 |
+| 2026-11-19 | Lighting interface: ShoreBreak relative units; surfer in the opaque HDR pass; one sky/sun/haze source; single post chain with look profiles. We define it; the wave renderer adopts it at integration. | Proposed | 06 §B8 |
+| 2026-11-19 | Not commercial initially, but may become so: **nothing from a non-commercial or territory-restricted tool goes into shipped assets or data.** Such tools may be used for internal evaluation only. | Adopted | Licensing section below |
 | 2026-11-19 | Art directions as presets of one pipeline; B is the hero look, D/C the engineering baseline, A last; time-of-day and weather cycle for long runs | Proposed; confirm after the previs bake-off | 08 §5, 01 §9 |
 | 2026-11-19 | Chase camera starting spec: 4–7 m back, 1.6–2.5 m high, 40–50° vertical FOV, level horizon (15–30% roll), 0.3–0.5 s yaw lag, no fisheye, frozen spray | Proposed; watch the follow-cam clips in 01 §2.3 first | 01 §2.2 |
 | 2026-11-19 | AI video previs is a look/camera reference only, never a motion reference | Adopted | 07, 09 |
@@ -173,18 +175,29 @@ directly before buying anything.
 - Midjourney in automated pipelines (no API)
 - AI 3D for hero assets
 
+## Licensing: non-commercial and restricted items
+
+The project is not commercial initially but may become so. Policy: use these items for
+internal evaluation at most, and never let their outputs or derived data reach shipped assets.
+Re-capturing or re-authoring later costs more than avoiding them now.
+
+| Item | Restriction | Commercial-safe alternative |
+|---|---|---|
+| GVHMR, PromptHMR, SMPLer-X, NVIDIA GENMO / GEM-SMPL (video-to-motion) | Non-commercial research licences | NVIDIA GEM-X, Meta SAM 3D Body |
+| WHAM, TRAM, 4D-Humans, CameraHMR | MIT code, but need the SMPL body model (non-commercial) | Same as above |
+| SMPL / SMPL-X / STAR / SUPR body models; Anny's optional `smplx` topology | Non-commercial (SMPL commercial licence sold separately by Max Planck) | MHR (Apache-2.0), Anny `anny` topology, MPFB2 (CC0) |
+| AMASS, Motion-X, HumanML3D, LAFAN1, Bandai Namco mocap datasets | Non-commercial | Own capture; 100STYLE (CC BY) for filler |
+| Text-to-motion models trained on those datasets (MDM, MoMask, T2M-GPT, MotionGPT) | Code is permissive, data is not | Not needed (no surf ability anyway) |
+| FLUX.1 / FLUX.2 [dev], FLUX.2 klein 9B weights (image generation) | Non-commercial | FLUX.2 klein 4B (Apache-2.0), or paid APIs |
+| TRELLIS.2 (image-to-3D) | MIT, but depends on NVIDIA nvdiffrast (research/evaluation only) | Not needed |
+| Free tiers: DeepMotion, Cascadeur, most video generators | Non-commercial or watermarked | Paid tiers |
+| Tencent Hunyuan3D, HunyuanWorld, HY-Motion, Hunyuan Video | **Territory**: not licensed in the EU, UK or South Korea | Avoid if users or the team may be there |
+| Revenue thresholds | MetaHuman/UE free under $1M/yr; Stability models under $1M; LTX-2 under $10M; Cascadeur Indie under $100k | Fine for now; revisit if commercial |
+
 ## Open questions for the project owner
 
-1. **Commercial status and distribution territory.** Several otherwise useful tools (Tencent
-   Hunyuan family, HY-Motion) exclude the EU, UK and South Korea. Several research tools are
-   non-commercial. Some research documents assumed an EU audience because ShoreBreak's scenery
-   is Nice-inspired. That assumption is **not confirmed**.
-2. Is the 500 ms stream allowed to be displayed with about 1 s of latency? This is
-   recommended, and essential for anticipation.
-3. What exactly is in the stream? Doc 05 assumes impulse events, accumulated performance and
+1. What exactly is in the stream? Doc 05 assumes impulse events, accumulated performance and
    stability. The spec decides the parameter mapping.
-4. Who owns the post-processing chain and the sky? This needs a joint decision with the water
-   team. Note that ShoreBreak currently renders a **shore-break** at a pebble beach; a
-   surfable **peeling** wave is a prerequisite for our riding animation.
-5. Approval for the spend in [11 §5](11-experiments.md): previs credits, mocap pilot,
-   possibly CC5.
+2. ShoreBreak currently renders a beach **shore-break**. The riding animation needs a surfable
+   **peeling** wave. Is the wave renderer expected to provide one, or should the lab assume an
+   analytic wave face until it does?

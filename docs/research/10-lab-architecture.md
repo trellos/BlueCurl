@@ -107,9 +107,8 @@ design):
 | **Recorded 6DoF**: board trajectories estimated from video (experiment V2), or from a phone IMU taped to a surfskate | Testing against reality |
 
 A later, wave-coupled `surfsim` replaces the generators in production. It uses the same
-interface (board state history and analytic derivatives) and queries the water team's wave
-model. **Board motion through the world belongs to us**, not the water team (see the decision
-log).
+interface (board state history and analytic derivatives) and queries the wave renderer's wave
+model. **Board motion through the world belongs to us** (see the decision log).
 
 ### 3.4 Performance stream simulator
 
@@ -135,7 +134,7 @@ Split view: chase and side, or two configurations for A/B comparison.
 - Presets: **A Tropical Clarity, B Golden Hour, C Atlantic Power, Studio Neutral** and
   **ShoreBreak-calibrated**. The last one imports ShoreBreak's sky LUT, sun, ambient and
   tone curve values from `src/core/look.js` and `src/post/Post.js`, to check that the surfer
-  integrates under the water team's current look.
+  integrates under the wave renderer's current look.
 - Sun azimuth and elevation slider (time of day), exposure (manual and auto), tone mapper
   (AgX / ACES / Neutral / ShoreBreak "phone look" port), 3D LUT slot, bloom amount.
 - Initial IBL: CC0 Poly Haven HDRIs for quick tests, then the shared sky provider once it
