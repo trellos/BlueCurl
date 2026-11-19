@@ -261,7 +261,9 @@ function resize() {
   }
   const q = QUALITY[quality];
   if(water.ex){
-    const colPx=quality==='high'||quality==='ultra'?7:quality==='low'?10:9;
+    // ?colpx=N: column spacing override (px at the 1080p design focal length); captures at lower
+    // resolution can match the mesh density to the output instead of the 1080p design
+    const colPx=qs.has('colpx')?num('colpx',9):quality==='high'||quality==='ultra'?7:quality==='low'?10:9;
     if(water.ex.params.colPx!==colPx){water.ex.params.colPx=colPx;water.ex.last=null;}
   }
   whitewater.params.bufS = q.foam;

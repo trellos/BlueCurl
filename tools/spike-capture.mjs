@@ -140,6 +140,24 @@ if (args.includes('--split')) {
   }).catch((e) => ({ error: e.message }));
   console.log('split', JSON.stringify(report.split));
 }
+if (args.includes('--profile')) {
+  // wall-clock cost per video frame, forced to completion with a 1-pixel readback (gl.finish alone
+  // does not wait on SwiftShader): render only, 5 sim steps (1/24 s), and the subsystems
+  report.profile = await page.evaluate(() => {
+    const { renderer, whitewater } = window.__scene;
+    const gl = renderer.getContext(), px = new Uint8Array(4);
+    const sync = () => { renderer.setRenderTarget(null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
+    const time = (fn, n = 2) => { sync(); const t0 = performance.now(); for (let i = 0; i < n; i++) { fn(); sync(); } return +((performance.now() - t0) / n).toFixed(0); };
+    const t = window.__params.shared.uTime.value;
+    return {
+      msRender: time(() => window.__scene.renderOnce()),
+      msAdvanceFrame: time(() => window.__advance(5 / 120)),
+      msWhitewaterStep: time(() => whitewater.step(t, 1 / 120), 3),
+      msGrab: time(() => window.__grab(), 1),
+    };
+  }).catch((e) => ({ error: e.message }));
+  console.log('profile', JSON.stringify(report.profile));
+}
 if (args.includes('--bench')) {
   report.bench = await page.evaluate(() => window.__bench(10));
   console.log('bench', JSON.stringify(report.bench));

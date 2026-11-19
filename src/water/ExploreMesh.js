@@ -42,7 +42,8 @@ export const EX = {
 // SURF_ROW rows covers the whole ridden face (lip landing line + 3 m .. 16 m seaward of it), and the
 // geometric rows and the ocean fan start further out (the wave's back face and the next set lines).
 const SURF = CONFIG.surf;
-const SURF_ROW = 0.025;
+// (?surfrow=m overrides the surf band's row spacing, e.g. for captures below 1080p)
+const SURF_ROW = (() => { const v = typeof location !== 'undefined' ? parseFloat(new URLSearchParams(location.search).get('surfrow')) : NaN; return Number.isFinite(v) && v >= 0.01 && v <= 0.2 ? v : 0.025; })();
 if (SURF) EX.zBot = Math.min(-45.0, SURF.zBreak - 38.0);
 
 // ------------------------------------------------------------------ rows
@@ -56,7 +57,7 @@ function baseRows() {
   while (y > -1.2 + 1e-6) { z.push(y); y -= 0.016; }
   if (SURF) {
     const zA = Math.min(SURF.zBreak + 3.0, -1.6), zB = SURF.zBreak - 16.0;
-    while (y > zA + 1e-6) { z.push(y); y -= 0.04; }
+    while (y > zA + 1e-6) { z.push(y); y -= Math.max(0.04, SURF_ROW); }
     while (y > zB + 1e-6) { z.push(y); y -= SURF_ROW; }
   } else
   while (y > -3.8 + 1e-6) { z.push(y); y -= 0.009; }
