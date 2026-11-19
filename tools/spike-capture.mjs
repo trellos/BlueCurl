@@ -116,6 +116,19 @@ if (opt('seq')) {
   } catch (e) { console.log('ffmpeg failed', e.message); }
 }
 
+if (args.includes('--split')) {
+  // wall-clock split of one frame's work (finish()ed): render vs one sim step's subsystems
+  report.split = await page.evaluate(() => {
+    const { renderer, swe, whitewater } = window.__scene;
+    const gl = renderer.getContext();
+    const P = window.__params.shared;
+    const time = (fn, n = 3) => { gl.finish(); const t0 = performance.now(); for (let i = 0; i < n; i++) fn(); gl.finish(); return +((performance.now() - t0) / n).toFixed(1); };
+    const t = P.uTime.value, dt = 1 / 120;
+    return { msSweStep: time(() => swe.step(t, dt)), msWhitewaterStep: time(() => whitewater.step(t, dt)),
+      msRender: time(() => window.__draw && window.__seek ? window.__scene.renderOnce() : 0, 1) };
+  }).catch((e) => ({ error: e.message }));
+  console.log('split', JSON.stringify(report.split));
+}
 if (args.includes('--bench')) {
   report.bench = await page.evaluate(() => window.__bench(10));
   console.log('bench', JSON.stringify(report.bench));

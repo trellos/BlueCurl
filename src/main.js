@@ -620,7 +620,7 @@ if (controls) {
 window.__explore = surf || controls;
 // surf mode: per-frame telemetry (board, contact, camera) for tools/spike-capture.mjs
 window.__surf = surf ? { telemetry: () => surf.telemetry(), demo: surf, schedule } : null;
-window.__scene = { THREE, beach, water, sky, lips, whitewater, camera, renderer, swe, surfaceProbe };
+window.__scene = { THREE, beach, water, sky, lips, whitewater, camera, renderer, swe, surfaceProbe, renderOnce: () => render() };
 window.__params = { post: () => post.params, shared, schedule, CONFIG };
 
 // ------------------------------------------------------------------ start
