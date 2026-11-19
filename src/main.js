@@ -48,6 +48,9 @@ const SHAKE = !qs.has('noshake') && !matchMedia('(prefers-reduced-motion: reduce
 const EXPLORE = CONFIG.explore;
 // surfing demonstration (?surf): autonomous board + chase camera on a peeling wave (src/surf/)
 const SURF = CONFIG.surf;
+// Surf mode breaks 4-12 m outside the shallow-water (swash) window, which then only shows a 22 m
+// rectangle out of equilibrium with the analytic far field: it stays at rest unless ?swe=1.
+const SWE_ON = !SURF || qs.get('swe') === '1';
 const FRAMED = EXPLORE && !CAPTURE;
 document.documentElement.style.setProperty('--scene-scale', String(FRAMED ? SCENE_SCALE : 1));
 document.body.classList.toggle('capture', CAPTURE);
@@ -327,7 +330,7 @@ function stepSim() {
   shared.uEvtD.value.set(schedule.D); shared.uEvtE.value.set(schedule.E); shared.uEvtF.value.set(schedule.F); shared.uEvtG.value.set(schedule.G);
   shared.uEvtCount.value = schedule.count;
   shared.uTime.value = simT;
-  swe.step(simT, DT);
+  if (SWE_ON) swe.step(simT, DT);
   whitewater.step(simT, DT);
   simT += DT;
 }

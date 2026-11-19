@@ -77,9 +77,13 @@ async function save(file) {
 }
 async function telemetry() { return page.evaluate(() => (window.__surf ? window.__surf.telemetry() : null)); }
 
+let lastStill = null;
 for (const t of (opt('times') ? opt('times').split(',').map(Number) : [])) {
   const t0 = Date.now();
-  await page.evaluate((tt) => window.__seek(tt), t);
+  // later stills advance the running simulation (a seek re-runs the whole warm-up)
+  if (lastStill !== null && t > lastStill) await page.evaluate((dt) => window.__advance(dt), t - lastStill);
+  else await page.evaluate((tt) => window.__seek(tt), t);
+  lastStill = t;
   const f = path.join(out, `t${t.toFixed(2)}.png`);
   await save(f);
   const tel = await telemetry();
