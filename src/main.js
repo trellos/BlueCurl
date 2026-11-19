@@ -23,6 +23,8 @@ import { Sky } from './sky/Sky.js';
 import { Whitewater } from './whitewater/Whitewater.js';
 import { Post } from './post/Post.js';
 import { ContactLight, CONTACT_SAMPLE } from './post/ContactLight.js';
+import { SurfDemo } from './surf/SurfDemo.js';
+import { SurfProbe } from './surf/SurfProbe.js';
 
 const __tStart = performance.now();
 const __marks = [];
@@ -41,10 +43,12 @@ const FIXED_H = qs.has('h') ? parseInt(qs.get('h'), 10) : 0;
 const SHAKE = !qs.has('noshake') && !matchMedia('(prefers-reduced-motion: reduce)').matches;
 // Explore uses a centered frame with 75% of the browser's area.
 const EXPLORE = CONFIG.explore;
+// surfing demonstration (?surf): autonomous board + chase camera on a peeling wave (src/surf/)
+const SURF = CONFIG.surf;
 const FRAMED = EXPLORE && !CAPTURE;
 document.documentElement.style.setProperty('--scene-scale', String(FRAMED ? SCENE_SCALE : 1));
 document.body.classList.toggle('capture', CAPTURE);
-const walking = EXPLORE;
+const walking = EXPLORE && !SURF;
 const loading = window.__loading || (() => {});
 const breathe = () => new Promise(r => setTimeout(r, 0));
 const nextPaint = () => new Promise(r => requestAnimationFrame(r));
@@ -83,6 +87,7 @@ const maxRenderDimension = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE),
 const V3 = (a) => new THREE.Vector3(...a);
 const shared = {
   uFocus: { value: new THREE.Vector2(0, 4.1) },
+  uSwellX0: { value: 0 },
   uTime: { value: 0 },
   uEvtA: { value: new Float32Array(24) },
   uEvtB: { value: new Float32Array(24) },
@@ -124,6 +129,10 @@ loading('Preparing the water', 14);
 await breathe();
 mark('pre-water');
 const water = new WaterSurface(shared, { cols: Math.round(num('cols', 360)), swell });
+// surf mode: wind-sea (chop) amplitude multiplier
+const BASE_AMP = shared.uOceanAmp.value.clone();
+const setChop = (k) => shared.uOceanAmp.value.set(BASE_AMP.x * k, BASE_AMP.y * k, BASE_AMP.z * k, BASE_AMP.w);
+if (SURF) setChop(SURF.chop);
 const lips = [new LipRibbon(shared, 0), new LipRibbon(shared, 1)];
 mark('lips');
 loading('Shaping the sandy shoreline', 21);
@@ -167,7 +176,7 @@ const camera = new THREE.PerspectiveCamera(C.vfov, C.aspect, C.near, C.far);
 camera.rotation.order = 'YXZ';
 const surfaceProbe=EXPLORE?new SurfaceProbe(shared):null;
 if(surfaceProbe)renderer.initRenderTarget(surfaceProbe.target);
-const controls = EXPLORE ? new ExploreControls(renderer.domElement, camera, {
+const controls = EXPLORE && !SURF ? new ExploreControls(renderer.domElement, camera, {
   ground: (x, z) => (beach.groundAt ? beach.groundAt(x, z) : bedProfileJS(z)),
   water: (x,z,t)=>surfaceProbe.sample(x,z,t),
   bounds: { xMin: -60, xMax: 60, zMin: -14.0, zMax: 36 },
@@ -175,9 +184,18 @@ const controls = EXPLORE ? new ExploreControls(renderer.domElement, camera, {
   reducedMotion: !SHAKE,
 }) : null;
 if (controls) controls.enabled = walking;
+const surfProbe = SURF ? new SurfProbe(shared) : null;
+const surf = SURF ? new SurfDemo({ schedule, probe: surfProbe, shared, camera }) : null;
+if (surf) opaqueScene.add(surf.board.group);
 let frameDt = 0;
 function updateCamera(t) {
   if (controls) { controls.update(frameDt,t); return; }
+  if (surf) {
+    // the board samples this frame's surface: evolve the FFT sea now (idempotent per time)
+    water.ocean.update(renderer, t);
+    surf.update(renderer, t);
+    return;
+  }
   camera.position.fromArray(C.position);
   if (SHAKE) {
     const [rx, ry, rz] = cameraSway(t);
@@ -224,14 +242,14 @@ function resize() {
   let cw, ch;
   if (FIXED_W && FIXED_H) {
     cw = FIXED_W; ch = FIXED_H;
-    if (EXPLORE) { camera.aspect = cw / ch; camera.fov = 58; camera.updateProjectionMatrix(); }
+    if (EXPLORE) { camera.aspect = cw / ch; camera.fov = SURF ? 62 : 58; camera.updateProjectionMatrix(); }
   } else {
     const ww = window.innerWidth, wh = window.innerHeight;
     if (EXPLORE) {
       const rect = stage.getBoundingClientRect();
       cw = Math.max(1, rect.width); ch = Math.max(1, rect.height);
       camera.aspect = cw / ch;
-      camera.fov = 58;
+      camera.fov = SURF ? 62 : 58;
       camera.updateProjectionMatrix();
     } else if (ww / wh > C.aspect) { ch = wh; cw = Math.round(wh * C.aspect); } else { cw = ww; ch = Math.round(ww / C.aspect); }
   }
@@ -295,6 +313,7 @@ const clock = new FixedClock(DT);
 let simT = 0;
 // the world recentres its meshes / simulation window on the player (explore) or the clip camera
 function updateFocus() {
+  if (surf) { const p = surf.focusAt(simT); shared.uFocus.value.set(p.x, p.z); return; }
   if (controls) shared.uFocus.value.set(controls.pos.x, controls.pos.z);
   else shared.uFocus.value.set(C.position[0], C.position[2]);
 }
@@ -313,6 +332,7 @@ const __px = new Uint8Array(4);
 const gpuSync = () => { renderer.setRenderTarget(null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, __px); };
 function seek(t) {
   clock.reset();
+  surf?.reset();
   surfaceProbe?.reset();
   if (controls) { frameDt = 0; controls.update(0); }
   updateFocus();
@@ -437,7 +457,11 @@ function frame(now) {
   adaptResolution(real);
   fpsAcc += real; fpsN++;
   if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
-  if (qs.has('stats') && !qs.has('nohud')) hud.textContent = `t ${simT.toFixed(2)}s  ${fps.toFixed(0)} fps  ${W}x${H}${paused ? '  [paused]' : ''}`;
+  if (qs.has('stats') && !qs.has('nohud')) {
+    hud.textContent = `t ${simT.toFixed(2)}s  ${fps.toFixed(0)} fps  ${W}x${H}${paused ? '  [paused]' : ''}`;
+    const st = surf?.telemetry();
+    if (st) hud.textContent += `  |  ${st.phase}  ${st.speed.toFixed(1)} m/s  ${st.aheadOfImpact.toFixed(1)} m ahead of the curl  gaps n ${st.gaps.nose.toFixed(2)} t ${st.gaps.tail.toFixed(2)}`;
+  }
   if (!CAPTURE) requestAnimationFrame(frame);
 }
 
@@ -590,7 +614,9 @@ if (controls) {
     if (on) { knob.style.left = `${x - 40}px`; knob.style.top = `${y - 40}px`; knob.firstElementChild.style.transform = `translate(${dx * 28}px, ${dy * 28}px)`; }
   };
 }
-window.__explore = controls;
+window.__explore = surf || controls;
+// surf mode: per-frame telemetry (board, contact, camera) for tools/spike-capture.mjs
+window.__surf = surf ? { telemetry: () => surf.telemetry(), demo: surf, schedule } : null;
 window.__scene = { THREE, beach, water, sky, lips, whitewater, camera, renderer, swe, surfaceProbe };
 window.__params = { post: () => post.params, shared, schedule, CONFIG };
 
@@ -731,7 +757,7 @@ async function start() {
   frameDt = 0;
   for (const t of [2.85, 3.15, 3.55]) { simT = t; render(); await drainGPU(); await breathe(); }
   if(surfaceProbe){
-    surfaceProbe.request(renderer,camera,simT,controls.pos.x,-10,true);
+    surfaceProbe.request(renderer,camera,simT,controls ? controls.pos.x : camera.position.x,-10,true);
     await surfaceProbe.ready;
   }
   await warmViews();
@@ -768,6 +794,27 @@ start().catch(window.__loadError);
 if (qs.has('gui')) {
   import('lil-gui').then(({ default: GUI }) => {
     const gui = new GUI({ title: 'Shorebreak' });
+    if (SURF) {
+      // wave parameters are compiled into the schedule / shaders at load: edit, then Apply (reload)
+      const sp = { ...SURF, dir: SURF.dir > 0 ? 'right (+x)' : 'left (-x)', apply() {
+        const q = new URLSearchParams(location.search);
+        for (const k of ['height', 'steep', 'curl', 'peel', 'chop', 'period', 'seed']) q.set(k, String(+(+sp[k]).toFixed(3)));
+        q.set('zbreak', String(sp.zBreak));
+        q.set('dir', sp.dir.startsWith('right') ? '1' : '-1');
+        location.search = q.toString();
+      } };
+      const f = gui.addFolder('Surf wave');
+      f.add(sp, 'height', 0.6, 3.5, 0.05).name('face height (m)');
+      f.add(sp, 'steep', 0.6, 1.8, 0.01).name('steepness');
+      f.add(sp, 'curl', 0, 1, 0.01).name('curl (lip)');
+      f.add(sp, 'peel', 2, 14, 0.1).name('peel speed (m/s)');
+      f.add(sp, 'dir', ['right (+x)', 'left (-x)']).name('peel direction');
+      f.add(sp, 'zBreak', -12, -4, 0.1).name('break line z (m)');
+      f.add(sp, 'period', 7, 20, 0.5).name('set period (s)');
+      f.add(sp, 'seed', 0, 999, 1);
+      f.add(sp, 'chop', 0, 3, 0.05).name('chop (live)').onChange(setChop);
+      f.add(sp, 'apply').name('Apply (reload)');
+    }
     const ctl = { get time() { return +simT.toFixed(2); }, speed, paused, restart: () => seek(START_T) };
     gui.add(ctl, 'speed', 0, 2, 0.05).onChange((v) => { speed = v; });
     gui.add(ctl, 'paused').onChange((v) => { paused = v; });

@@ -69,9 +69,11 @@ export function brkStageJS(tn) {
   const f = Math.min(Math.max((tn - T[i]) / (T[i + 1] - T[i]), 0), 1);
   const poly = (c) => c[0] + f * (c[1] + f * (c[2] + f * c[3]));
   const lin = (A) => A[i] + (A[i + 1] - A[i]) * f;
-  return { za: poly(hermCoef(K.ZA, T, i)), ya: poly(hermCoef(K.YA, T, i)), yt: lin(K.YT), lf: lin(K.LF), uw: lin(K.UW),
-    hw: lin(K.HW), m: lin(K.M), p: lin(K.P), st: lin(K.ST), lb: lin(K.LB) };
+  return { za: poly(hermCoef(K.ZA, T, i)), ya: poly(hermCoef(K.YA, T, i)), yt: lin(K.YT), lf: lin(K.LF) / SURF_STEEP, uw: lin(K.UW),
+    hw: lin(K.HW), m: lin(K.M), p: lin(K.P), st: lin(K.ST), lb: lin(K.LB) / Math.sqrt(SURF_STEEP) };
 }
+// surf mode: face steepness (the front face length / steepness, the back face / sqrt(steepness))
+const SURF_STEEP = CONFIG.surf ? CONFIG.surf.steep : 1.0;
 function stageGLSL() {
   const K = BK_TABLE, T = K.T, n = T.length;
   const f = (v) => { const s = (+v).toPrecision(7); return /[.e]/.test(s) ? s : s + '.0'; };
@@ -95,13 +97,24 @@ function stageGLSL() {
   g.za = dot(cz, fp); g.ya = dot(cy, fp);
   g.yt = l.x; g.lf = l.y; g.uw = l.z; g.hw = l.w;
   g.m = q.x; g.p = q.y; g.st = q.z; g.lb = q.w;
+#ifdef OPT_SURF
+  g.lf *= ${(1 / SURF_STEEP).toFixed(6)}; g.lb *= ${(1 / Math.sqrt(SURF_STEEP)).toFixed(6)};
+#endif
   return g;
 }`;
   return code;
 }
 
-export const BREAKER = (CONFIG.explore ? '#ifndef OPT_EXPLORE\n#define OPT_EXPLORE\n#endif\n' : '') + /* glsl */ `
+export const BREAKER = (CONFIG.explore ? '#ifndef OPT_EXPLORE\n#define OPT_EXPLORE\n#endif\n' : '')
+  + (CONFIG.surf ? '#ifndef OPT_SURF\n#define OPT_SURF\n#endif\n' : '') + /* glsl */ `
 #define MAX_EVENTS 6
+// Fade-in of crest optics with the apex position: the clip's swell is born ~13-23 m out. In surf mode
+// (OPT_SURF) the waves are larger and break further out, so these beach-specific fades are lifted.
+#ifdef OPT_SURF
+#define BRK_BIRTH(a, b, z) 1.0
+#else
+#define BRK_BIRTH(a, b, z) smoothstep(a, b, z)
+#endif
 ${SWELL_TRANSPORT}
 uniform vec4 uEvtA[MAX_EVENTS]; // x: t0 impact-time base (s), y: H nominal breaker height (m), z: impact (lip landing) z at x=0 (m), w: seed
 uniform vec4 uEvtB[MAX_EVENTS]; // x: c bore / crest speed at the break (m/s), y: x0 nucleation x (m), z: timing wobble (s), w: strength (0 = off)
@@ -224,6 +237,12 @@ Brk brkAt(int i, float x) {
   peel = mix(peel, Af * (fm.x + fm.y * (xs - x)), wS);
   stand = mix(stand, BRK_FAR_STAND * Af * (fm.x + 1.0), wS);
   lg *= 1.0 - wS;
+#ifdef OPT_SURF
+  // surf mode: an unbounded linear peel on top (D.x = dir / peel speed (s/m), D.y = its origin x):
+  // every event is a pattern travelling along the coast at the peel speed (schedule.js surfEvents)
+  peelS += D.x * (x - D.y);
+  peel += D.x * (xs - D.y);
+#endif
   float fS = fm.x * wS;
   // the sections arrive smoothly; the steps are taken up by standing (>= 0.05 s) at the break
   b.D = max(max(E.y, 0.05) + stand + (peel - peelS), 0.0);
@@ -457,7 +476,7 @@ float brkCrestWidth(vec2 xz, float y, float t) {
     if (tn < -2.0 || tn > 0.3) continue;
     BrkStage g = brkStage(tn);
     vec2 A = brkApex(b, g, tn);
-    float amp = smoothstep(-18.0, -11.0, A.x) * b.str;
+    float amp = BRK_BIRTH(-18.0, -11.0, A.x) * b.str;
     float ya = g.ya * b.s * amp, yt = g.yt * b.s * amp;
     float h = (y - yt) / max(ya - yt, 1e-3);          // height fraction on this crest
     if (h < 0.35 || h > 1.02) continue;
@@ -700,7 +719,7 @@ float brkSweFoamKeep(vec2 xz, float t) {
     vec2 A = brkApex(b, g, tn);
     float xi = (xz.y - A.x) / b.s;
     if (xi < -0.8 || xi > g.lf) continue;
-    float amp = smoothstep(-23.0, -13.0, A.x) * (1.0 - smoothstep(0.6, BRK_TEND, tn)) * b.str * fade;
+    float amp = BRK_BIRTH(-23.0, -13.0, A.x) * (1.0 - smoothstep(0.6, BRK_TEND, tn)) * b.str * fade;
     float eta = brkShape(g, xi).x * b.s * amp;                         // rendered elevation (m)
     float raised = smoothstep(0.012, 0.06, eta - 0.5 * g.yt * b.s * amp);
     float front = smoothstep(-0.8, -0.2, xi);                          // front face + top of the back

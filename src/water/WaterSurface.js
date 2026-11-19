@@ -186,7 +186,11 @@ void main() {
   // y: on a breaker's front face or in the trough just ahead of one (the surface rises within
   // 0.7 m seaward): where the per-pixel crest optics are evaluated;
   // z: camera-facing slope of the breaker surface alone (not of the bore / swash)
+#ifdef OPT_SURF
+  float zone = smoothstep(-48.5, -45.5, xz.y) * smoothstep(0.6, 0.3, xz.y);   // surf: larger waves further out
+#else
   float zone = smoothstep(-18.5, -17.5, xz.y) * smoothstep(0.6, 0.3, xz.y);
+#endif
   float inWave = smoothstep(0.02, 0.08, length(gm)) * zone;
   float nearFace = 0.0;
 #ifdef MAIN_PASS

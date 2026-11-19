@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { glslDefines } from '../config.js';
+import { glslDefines, CONFIG } from '../config.js';
 import { NOISE } from '../glsl/common.js';
 import { BREAKER } from '../glsl/breaker.js';
 import { waterLookups } from './WaterLookups.js';
@@ -7,9 +7,10 @@ import { waterLookups } from './WaterLookups.js';
 const CAPACITY = 32, SEGMENTS = 256;
 const VERT = glslDefines() + NOISE + BREAKER.replace('#define MAX_EVENTS 6', '#define MAX_EVENTS 32') + /* glsl */ `
 in float aEvent;
+uniform float uSwellX0;
 out vec4 vShape0, vShape1;
 void main() {
-  Brk b=brkAt(int(aEvent+.5),position.x);
+  Brk b=brkAt(int(aEvent+.5),position.x+uSwellX0);
   float tn=brkTn(b,uTime); BrkStage g; vec2 A;
   brkTransport(b,min(tn,-.8),g,A);
   float alive=(1.0-smoothstep(-1.0,-.8,tn))*b.str;
@@ -36,7 +37,7 @@ void main() {
 
 export class Swell {
   constructor(shared,schedule) {
-    this.schedule=schedule; this.time=NaN;
+    this.schedule=schedule; this.time=NaN; this.shared=shared;
     const travel=waterLookups();
     this.target=new THREE.WebGLRenderTarget(256,512,{type:THREE.HalfFloatType,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,depthBuffer:false,stencilBuffer:false});
     Object.assign(shared,{uWaterLookup:{value:travel.texture},uSwellMinTime:{value:travel.minTime},uSwellField:{value:this.target.texture}});
@@ -54,7 +55,7 @@ export class Swell {
   }
   pack(t) {
     this.schedule.extendTo(t+110);
-    const events=this.schedule.events.filter(e=>e.t0>t-6&&e.t0<t+114).slice(0,CAPACITY);
+    const events=this.schedule.swellEvents(t).slice(0,CAPACITY);
     this.geometry.instanceCount=events.length;this.uniforms.uEvtCount.value=events.length;
     for(let i=0;i<events.length;i++){
       const e=events[i],o=i*4,u=this.uniforms;
@@ -64,7 +65,10 @@ export class Swell {
     }
   }
   update(renderer,t) {
-    if(t===this.time)return;this.time=t;this.pack(t);this.uniforms.uTime.value=t;
+    // surf mode: the field (+-512 m) follows the focus along the coast in whole 4 m texels
+    const x0=CONFIG.surf&&this.shared.uFocus?Math.round(this.shared.uFocus.value.x/4)*4:0;
+    if(t===this.time&&x0===this.x0)return;this.time=t;this.x0=x0;this.pack(t);this.uniforms.uTime.value=t;
+    if(this.shared.uSwellX0)this.shared.uSwellX0.value=x0;
     const target=renderer.getRenderTarget(),color=renderer.getClearColor(new THREE.Color()),alpha=renderer.getClearAlpha();
     renderer.setRenderTarget(this.target);renderer.setClearColor(0,0);renderer.clear();renderer.render(this.scene,this.camera);
     renderer.setClearColor(color,alpha);renderer.setRenderTarget(target);

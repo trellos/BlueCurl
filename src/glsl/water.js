@@ -227,7 +227,11 @@ float waterParts(vec2 xz, float t, float lod, out vec2 gMacro, out vec3 chop, ou
   float eta = 0.0;
 #ifdef OPT_EXPLORE
   aa=mix(aa,1.0-smoothstep(.7,3.0,lod),1.0-smoothstep(-11.0,-7.0,xz.y));
-  if (aa > 0.0 && xz.y > -40.0) {   // fine shoaling profile; farther crests use the shared swell field
+#ifdef OPT_SURF
+  if (aa > 0.0 && xz.y > -75.0) {
+#else
+  if (aa > 0.0 && xz.y > -40.0) {
+#endif   // fine shoaling profile; farther crests use the shared swell field
 #endif
   eta = brkSurface(xz, t, d, crestFoam);
   float etaX = brkSurfaceOnly(xz + vec2(0.04, 0.0), t);
@@ -237,11 +241,18 @@ float waterParts(vec2 xz, float t, float lod, out vec2 gMacro, out vec3 chop, ou
 #endif
   eta *= aa; d *= aa; crestFoam *= aa;
 #ifdef OPT_EXPLORE
-  float sw=1.0-smoothstep(-32.0,-22.0,xz.y);
+#ifdef OPT_SURF
+  // (the surf break's back face and the next lines of the set stay analytic out to 55 m; the 4 m-texel
+  //  swell field would stair-step an oblique, peeling crest)
+  const float SW0=-70.0, SW1=-55.0;
+#else
+  const float SW0=-32.0, SW1=-22.0;
+#endif
+  float sw=1.0-smoothstep(SW0,SW1,xz.y);
   if(sw>0.0){
     vec3 farSwell=swellAt(xz)*(1.0-smoothstep(3.0,14.0,lod));
-    float q=clamp((xz.y+32.0)/10.0,0.0,1.0);
-    float slope=-.6*q*(1.0-q);
+    float q=clamp((xz.y-SW0)/(SW1-SW0),0.0,1.0);
+    float slope=-6.0*q*(1.0-q)/(SW1-SW0);   // d(sw)/dz
     d=mix(d,farSwell.yz,sw)+vec2(0.0,(farSwell.x-eta)*slope);
     eta=mix(eta,farSwell.x,sw);
   }
@@ -361,7 +372,7 @@ vec4 crestGeometry(vec2 xz, float t, float etaR, out vec3 aux, out vec3 faceNorm
   BrkStage g = brkStage(tn);
   vec2 A = brkApex(b, g, tn);
   // brkProfile(): eta = brkShape(g, (z - A.z) / s).x * s * amp * fade(z)
-  float amp = smoothstep(-23.0, -13.0, A.x) * (1.0 - smoothstep(0.6, BRK_TEND, tn)) * b.str;
+  float amp = BRK_BIRTH(-23.0, -13.0, A.x) * (1.0 - smoothstep(0.6, BRK_TEND, tn)) * b.str;
   vec2 sh0 = brkShape(g, (xz.y - A.x) / b.s);
   float eta0 = sh0.x * b.s * amp * (1.0 - smoothstep(-1.0, 0.1, xz.y));
   aux.z = max(-sh0.y * amp * (1.0 - smoothstep(-1.0, 0.1, xz.y)), 0.0);

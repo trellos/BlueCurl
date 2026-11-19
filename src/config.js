@@ -7,11 +7,33 @@
 // Numbers are calibrated against the reference clip (camera, geometry, colour and
 // swash analyses). JS and GLSL share them through glslDefines().
 
-const EXPLORE = typeof location !== 'undefined' && !new URLSearchParams(location.search).has('clip');
+const QS = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+const EXPLORE = typeof location !== 'undefined' && !QS.has('clip');
+
+// ---- surfing demonstration mode (?surf) -------------------------------------------------------
+// A continuously peeling breaker built from the scheduled-breaker model (glsl/breaker.js OPT_SURF)
+// plus a programmatically ridden shortboard and chase camera (src/surf/). Every parameter can be
+// given on the URL, e.g. ?surf&height=2.2&peel=7&dir=-1&curl=0.9&steep=1.2&chop=1.5
+const qn = (k, d, lo, hi) => { const v = Number.parseFloat(QS.get(k)); return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
+function parseSurf() {
+  if (!EXPLORE || !QS.has('surf')) return null;
+  return {
+    height: qn('height', 1.8, 0.6, 3.5),     // rendered trough-to-crest face height at the break (m)
+    steep: qn('steep', 1.0, 0.6, 1.8),       // face steepness: front/back face lengths divided by this
+    curl: qn('curl', 0.85, 0, 1),            // 0 spilling .. 1 hollow plunging lip (throw distance, roundness)
+    peel: qn('peel', 6.0, 2.0, 14.0),        // peeling speed along the crest (m/s)
+    dir: QS.get('dir') === '-1' || QS.get('dir') === 'left' ? -1 : 1, // +1: the break moves toward +x
+    chop: qn('chop', 1.0, 0, 3),             // wind-sea (FFT) amplitude multiplier
+    zBreak: qn('zbreak', -7.0, -12, -4),     // cross-shore landing line of the lip (m, shore at z = 0)
+    period: qn('period', 12.0, 7, 20),       // time between successive peeling waves (s)
+    seed: qn('seed', 7, 0, 1e6),
+  };
+}
 export const CONFIG = {
   g: 9.81,
   // full-window first-person mode (?explore): the world must hold up around a moving focus
   explore: EXPLORE,
+  surf: parseSurf(),
 
   // ---- camera: iPhone main camera, 4K60 portrait with EIS ------------------
   camera: {
@@ -59,7 +81,8 @@ export const CONFIG = {
   // ---- simulation ----------------------------------------------------------
   sim: {
     dt: 1 / 120,
-    warmup: 12.0,
+    // (?warmup=N shortens the settling run for development / slow software renderers)
+    warmup: qn('warmup', 12.0, 0.5, 12.0),
     videoDuration: 8.5167,
   },
 

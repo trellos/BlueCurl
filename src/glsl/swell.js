@@ -17,10 +17,12 @@ vec4 swellPosition(float time) {
 export const SWELL_SAMPLE = /* glsl */ `
 #ifdef OPT_EXPLORE
 uniform sampler2D uSwellField;
+uniform float uSwellX0;   // world x of the field's centre (0; surf mode: follows the focus in 4 m texel steps)
 vec3 swellAt(vec2 xz) {
   float v=log(1.0+max(-xz.y-6.0,0.0)/8.0)/log(81.5);
-  vec2 uv=vec2((xz.x+512.0)/1024.0,v);
-  float fade=(1.0-smoothstep(420.0,512.0,abs(xz.x)))*smoothstep(-650.0,-460.0,xz.y);
+  float xr=xz.x-uSwellX0;
+  vec2 uv=vec2((xr+512.0)/1024.0,v);
+  float fade=(1.0-smoothstep(420.0,512.0,abs(xr)))*smoothstep(-650.0,-460.0,xz.y);
   return textureLod(uSwellField,uv,0.0).rgb*fade;
 }
 #endif

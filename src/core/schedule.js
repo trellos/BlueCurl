@@ -35,6 +35,7 @@
 
 import { CONFIG } from '../config.js';
 
+const SURF = CONFIG.surf;
 const MAX_EVENTS = 6;
 const H_REF = 0.45;   // nominal height of wave B (see glsl/breaker.js BRK_HREF)
 const T_SKIN = -1.4, T_RELEASE = -0.33, T_END = 0.85; // normalised stage times (breaker.js)
@@ -164,6 +165,11 @@ export function brkTiming(e, x) {
   peel = mix(peel, Af * (fm + dfm * (xs - x)), wS);
   stand = mix(stand, FAR_STAND * Af * (fm + 1), wS);
   lg *= 1 - wS;
+  if (SURF) {
+    // surf mode (breaker.js OPT_SURF): an unbounded linear peel ti += k (x - x0), k = e.aR1 = dir / speed
+    peelS += e.aR1 * (x - e.aR2);
+    peel += e.aR1 * (xs - e.aR2);
+  }
   const fS = fm * wS;
   const wob = 0.62 * Math.sin(x * 2.3 + s * 6.1) + 0.38 * Math.sin(x * 5.1 + s * 11.7);
   const ti = e.t0 + peel + e.wobble * wob;
@@ -178,7 +184,7 @@ export function brkTiming(e, x) {
   const vimp = Math.hypot(vx, vy);
   const zI = e.zI + e.tilt * TILT_L * Math.sin(x / TILT_L) + FAR_Z * fS
     + e.waviness * (0.6 * Math.sin(x * 1.37 + s * 4.7) + 0.4 * Math.sin(x * 3.1 + s * 2.3));
-  return { ti, tb: ti - Tj, H, Tj, vimp, rs, D, zI, splash: e.splash ?? 1, bore: e.bore ?? 1 };
+  return { ti, tb: ti - Tj, H, Tj, vimp, rs, D, zI, splash: e.splash ?? 1, bore: e.bore ?? 1, stair: peel - peelS };
 }
 
 // time range of the event's impact line across x in [xa, xb] (lo2: earliest arrival ti - D)
@@ -192,8 +198,42 @@ function tiRange(e, xa, xb, step = 0.25) {
   return [lo, hi, rsMax, lo2];
 }
 
+// ---------------------------------------------------------------- surf mode
+// Nominal (analysis) height H for a rendered trough-to-crest face height: at the break the stage
+// table gives crest 0.553 s, trough -0.068 s (s = H / 0.45) -> face = 1.38 H.
+export const SURF_FACE_PER_H = 0.621 / H_REF;
+export const SURF_EVENTS = 4;
+/** A train of identical-statistics peeling waves. Event k breaks along the whole coast with
+ *  ti(x) = t0_k + (dir / peel) x (+ the bounded far modulation: sections that peel faster / slower),
+ *  so each is a pattern travelling at the peel speed along x and steady in its own frame: followed
+ *  at that speed, a wave peels indefinitely. Event 0 is the ridden wave (it breaks at x = 0 at t = 0);
+ *  the later ones are the next lines of the set, offshore of it. */
+export function surfEvents(S = SURF) {
+  const r = mulberry32(Math.round(S.seed) * 7919 + 13);
+  const H0 = S.height / SURF_FACE_PER_H;
+  const out = [];
+  for (let k = 0; k < SURF_EVENTS; k++) {
+    const H = H0 * (k === 0 ? 1 : 0.9 + 0.2 * r());
+    out.push({
+      ...EVENT_DEFAULTS,
+      name: 'surf' + k,
+      t0: k * S.period * (1 + (k ? 0.08 * (r() - 0.5) : 0)),
+      H, zI: S.zBreak - 0.6 * (H / H0 - 1),
+      c: 2.5 * Math.sqrt(H / H_REF),
+      style: S.curl, kappa: -0.2 + 0.45 * S.curl, spill: 0.6 * (1 - S.curl),
+      hvar: 0.06, wobble: 0.01, waviness: 0.05, tilt: 0,
+      x0: 0, aR1: S.dir / S.peel, aR2: 0, aL1: 0, aL2: 0, F: [0, 0, 1, 0],
+      // bounded along-crest timing modulation on top of the linear peel: +-25 % peel speed, the
+      // sections that break early are a little bigger and break a little further out
+      far: 0.16 + 0.04 * r(), farPhase: r(),
+      seed: r(), bore: 1, splash: 1, strength: 1,
+    });
+  }
+  return out;
+}
+
 export class Schedule {
-  constructor({ seed = 7, events = VIDEO_EVENTS } = {}) {
+  constructor({ seed = 7, events = SURF ? surfEvents() : VIDEO_EVENTS } = {}) {
     this.events = events.map((e) => Schedule.prepare({ ...EVENT_DEFAULTS, ...e }));
     this.events.sort((a, b) => a.t0 - b.t0);
     this.rng = mulberry32(seed);
@@ -212,6 +252,12 @@ export class Schedule {
   }
 
   static prepare(e) {
+    if (SURF) {
+      // a peeling wave is somewhere along the coast at every moment: always active (pack keeps all
+      // SURF_EVENTS); the lip windows are found around the focus in jetSlots
+      e._window = [-Infinity, Infinity]; e._lip = [-Infinity, Infinity];
+      return e;
+    }
     // influence window (swell born ~6 normalised s before impact, injection / splash last
     // ~1.3 s after) over the shallow-water domain (clip) or the whole beach (explore: the
     // heightfield, the scrolling shallow-water window and the far-field swash can be anywhere)
@@ -237,6 +283,7 @@ export class Schedule {
 
   /** Make sure procedural events exist up to time t. */
   extendTo(t) {
+    if (SURF) return;
     let last = this.events[this.events.length - 1];
     while (last.t0 < t + 20) {
       const r = this.rng;
@@ -318,7 +365,34 @@ export class Schedule {
    *  important first (the caller draws as many as it has ribbons for). Explore mode: over the
    *  ribbons' range around the along-shore focus (Schedule.focusRef, the shared uFocus, when the
    *  caller passes none), those whose lip is up near the focus first. */
+  /** Events the offshore swell field (water/Swell.js) draws near time t. */
+  swellEvents(t) {
+    if (SURF) return this.events;
+    return this.events.filter((e) => e.t0 > t - 6 && e.t0 < t + 114);
+  }
+
+  /** Surf mode: events whose lip sheet (or crest skin) is up somewhere within the ribbons' reach
+   *  around the focus, nearest first (the timing is evaluated every 1 m: the peel is smooth). */
+  _surfJetSlots(t, fx) {
+    const cand = [];
+    this.active.forEach((e, i) => {
+      let dmin = Infinity;
+      for (let dx = -LIP_HALF; dx <= LIP_HALF; dx += 1.0) {
+        const b = brkTiming(e, fx + dx);
+        if (t > b.ti - b.D + T_SKIN * b.rs - 0.25 && t < b.ti + T_END * b.rs + 0.25) dmin = Math.min(dmin, Math.abs(dx));
+      }
+      if (dmin < Infinity) cand.push([i, Math.floor(dmin / 4)]);
+    });
+    cand.sort((p, q) => p[1] - q[1] || p[0] - q[0]);
+    return cand.map((c) => c[0]);
+  }
+
   jetSlots(t, focusX) {
+    if (SURF) {
+      const fx = focusX ?? Schedule.focusRef?.value.x ?? this.focusX;
+      this.focusX = fx;
+      return this._surfJetSlots(t, fx);
+    }
     if (!CONFIG.explore) {
       const out = [];
       this.active.forEach((e, i) => {

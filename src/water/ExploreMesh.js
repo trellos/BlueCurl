@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CONFIG } from '../config.js';
 
 // Water mesh for explore mode: covers every view direction around a moving focus (the player).
 //
@@ -37,6 +38,12 @@ export const EX = {
   fanS0: 0.12, fanGrow: 1.035, fanEnd: -4500,
   fanRowPx: 1.5,               // far out the fan rows keep >= 1.5 px on screen (s = P dz^2 / (f h))
 };
+// Surf mode: the break is 2-4x the clip's shore break and stands 4-12 m further out. A uniform band of
+// SURF_ROW rows covers the whole ridden face (lip landing line + 3 m .. 16 m seaward of it), and the
+// geometric rows and the ocean fan start further out (the wave's back face and the next set lines).
+const SURF = CONFIG.surf;
+const SURF_ROW = 0.025;
+if (SURF) EX.zBot = Math.min(-45.0, SURF.zBreak - 38.0);
 
 // ------------------------------------------------------------------ rows
 function baseRows() {
@@ -47,13 +54,18 @@ function baseRows() {
   for(let j=160;j>0;j--)z.push(y+j*.055);
   while (y > 1.0 + 1e-6) { z.push(y); y -= 0.02; }
   while (y > -1.2 + 1e-6) { z.push(y); y -= 0.016; }
+  if (SURF) {
+    const zA = Math.min(SURF.zBreak + 3.0, -1.6), zB = SURF.zBreak - 16.0;
+    while (y > zA + 1e-6) { z.push(y); y -= 0.04; }
+    while (y > zB + 1e-6) { z.push(y); y -= SURF_ROW; }
+  } else
   while (y > -3.8 + 1e-6) { z.push(y); y -= 0.009; }
   // geometric to zBot; the count makes (N - 1) a multiple of the largest row step
   const M = EX.steps[EX.steps.length - 1];
   const start = z.length;
   let n = 192;
   while ((start + n - 1) % M !== 0) n++;
-  const span = y - EX.zBot, s0 = 0.009;
+  const span = y - EX.zBot, s0 = SURF ? SURF_ROW : 0.009;
   // s0 (r + r^2 + ... + r^n) = span  -> r by bisection (the last step lands on zBot)
   let lo = 1.0, hi = 1.2;
   for (let k = 0; k < 60; k++) { const r = 0.5 * (lo + hi); const S = (s0 * r * (Math.pow(r, n - 1) - 1)) / (r - 1); if (S > span) hi = r; else lo = r; }
