@@ -18,6 +18,7 @@ import {
   mirrorOps, TORTURE, type Op,
 } from './keyposes.ts';
 import { ankleTarget, frameFrom, makeLegChain, solveLeg, type LegChain } from './ik.ts';
+import { Clips, POPUP_DURATION } from './clips.ts';
 
 const G = 9.81;
 const DEG = Math.PI / 180;
@@ -60,6 +61,8 @@ export const defaultRiderParams: RiderParams = {
   noise: true,
   torture: '',
 };
+
+export type Phase = 'ride' | 'paddle' | 'popup';
 
 export interface StreamPacket {
   t: number;
@@ -141,6 +144,14 @@ export class Rider {
   fallen = 0; // 0 riding, >0 seconds since fall
   private fallDir = new THREE.Vector3();
   private overThreshold = 0;
+  // phases (paddle → pop-up → ride), with a dead blend from the last output pose on switches
+  phase: Phase = 'ride';
+  private phaseT0 = 0;
+  private clips: Clips;
+  private lastOut: Pose;
+  private blendFromT = -1;
+  /** Auto pop-up time after paddling starts (s), or 0 for manual. */
+  autoPopup = 0;
   // metrics
   footErrorMm: [number, number] = [0, 0];
   leanDeg = 0;
@@ -157,6 +168,8 @@ export class Rider {
     this.armBones = [I.clavL, I.upperarmL, I.forearmL, I.handL, I.clavR, I.upperarmR, I.forearmR, I.handR];
     this.spineBones = [I.spine0, I.spine1, I.spine2, I.neck, I.head];
     this.legs = [makeLegChain(rig, 'R'), makeLegChain(rig, 'L')];
+    this.clips = new Clips(rig);
+    this.lastOut = new Pose(rig.n).copy(rig.rest);
     this.setStance('regular');
   }
 
@@ -208,8 +221,29 @@ export class Rider {
     this.dipSpring.reset(0);
     this.anchors.back.p.copy(this.nominal.back);
     this.anchors.front.p.copy(this.nominal.front);
+    this.stabTarget = 0.85;
+    this.perfTarget = 0.5;
     this.stability = this.stabTarget;
     this.performance = this.perfTarget;
+    this.phase = 'ride';
+    this.blendFromT = -1;
+  }
+
+  setPhase(ph: Phase): void {
+    if (ph === this.phase) return;
+    this.lastOut.copy(this.pose);
+    this.blendFromT = this.time;
+    this.phase = ph;
+    this.phaseT0 = this.time;
+    if (ph === 'popup') {
+      this.crouch.reset(0.95);
+      // pop-up landing: back foot lands ~7 cm forward of its riding spot, then shuffles back
+      const n = this.nominal.back;
+      this.anchors.back.p.copy(this.board.deckFrame(n.z + 0.07, n.x).p);
+      this.anchors.front.p.copy(this.nominal.front);
+      this.returnAt = this.time + POPUP_DURATION + 0.7;
+    }
+    if (ph === 'paddle') this.fallen = 0;
   }
 
   // ------------------------------------------------ inputs
@@ -238,7 +272,7 @@ export class Rider {
   kick(strength: number, kind: 'bad' | 'great'): void {
     if (kind === 'bad') {
       const a = this.rng() * Math.PI * 2;
-      this.impulses.push({ t0: this.time, fx: Math.cos(a) * 6 * strength, fz: Math.sin(a) * 8 * strength, dip: 0.12 * strength });
+      this.impulses.push({ t0: this.time, fx: Math.cos(a) * 15 * strength, fz: Math.sin(a) * 20 * strength, dip: 0.12 * strength });
       this.armsOut.s.v += 5 * strength;
       this.dipSpring.v += 1.2 * strength;
     } else {
@@ -271,6 +305,12 @@ export class Rider {
       this.fallen += dt;
       if (this.fallen > 3) this.reset();
       return;
+    }
+    if (this.phase === 'paddle' && this.autoPopup > 0 && this.time - this.phaseT0 >= this.autoPopup) this.setPhase('popup');
+    if (this.phase === 'popup' && this.time - this.phaseT0 >= POPUP_DURATION) {
+      this.phase = 'ride';
+      this.lastOut.copy(this.pose);
+      this.blendFromT = this.time;
     }
 
     // specific force in the board frame at the stance point
@@ -322,7 +362,7 @@ export class Rider {
     let fz = -D[rd * 3 + 2] * P.lagGain;
     // pink force noise: perturb forces, not poses
     if (P.noise) {
-      const A = 0.5 + (9 - 0.5) * (1 - stab) * (1 - stab);
+      const A = 0.5 + (16 - 0.5) * (1 - stab) * (1 - stab);
       fx += A * this.noiseX(this.time);
       fz += A * 0.7 * this.noiseZ(this.time);
     }
@@ -342,7 +382,7 @@ export class Rider {
     }
     if (!P.balance) fx = fz = 0;
     const zeta = 0.55 + 0.45 * stab;
-    const f0 = P.comHz * (0.8 + 0.4 * perf);
+    const f0 = P.comHz * (0.8 + 0.4 * perf) * (0.65 + 0.35 * stab);
     this.comX.step(fx, f0, zeta, dt);
     this.comZ.step(fz, f0 * 0.8, zeta, dt);
 
@@ -372,7 +412,8 @@ export class Rider {
     // balance error: COM excursion vs support, and body axis vs actual apparent up
     // only the UNPLANNED part counts: the body leading a planned turn is skill, not imbalance.
     // (A vector magnitude, not an angle: near weightlessness the direction of f is undefined.)
-    const unplanned = this.fDistB.length();
+    // tangential only: vertical (heave) disturbances are absorbed by the knees, not a balance threat
+    const unplanned = Math.hypot(this.fDistB.x, this.fDistB.z);
     const eCom = Math.hypot(this.comX.x / 0.14, this.comZ.x / 0.22);
     this.eCom = eCom;
     this.eTilt = unplanned / (0.65 * G);
@@ -421,6 +462,11 @@ export class Rider {
     const K = this.keys;
     const tort = P.torture ? TORTURE[P.torture] : null;
     const s = this.stance === 'regular' ? 1 : -1;
+    if (this.phase === 'paddle') {
+      this.clips.paddle(pose, this.board, 1.82, this.time - this.phaseT0);
+      this.finish();
+      return;
+    }
 
     // 1) key-pose synthesis: crouch blend (spine/head), arm sets
     const c = tort ? tort.crouch : this.crouch.x;
@@ -530,6 +576,34 @@ export class Rider {
     // 4) head: gaze down the line, roll mostly level with the horizon (board frame)
     if (P.head && this.fallen === 0) this.stabiliseHead(motion);
 
+    if (this.phase === 'popup') {
+      this.tmpB.copy(pose);
+      this.clips.popup(pose, this.tmpB, this.board, 1.82, (this.time - this.phaseT0) / POPUP_DURATION, this.stance);
+    }
+    this.finish();
+  }
+
+  /** Dead blend from the last output pose after a phase switch (half-life ~60 ms), then write. */
+  private finish(): void {
+    const rig = this.rig;
+    const pose = this.pose;
+    if (this.blendFromT >= 0) {
+      const tt = this.time - this.blendFromT;
+      const w = Math.exp((-tt * Math.LN2) / 0.06);
+      if (w < 0.01) this.blendFromT = -1;
+      else {
+        for (let i = 0; i < rig.n; i++) {
+          pose.getQ(i, _q);
+          this.lastOut.getQ(i, _q2);
+          _q.slerp(_q2, w);
+          pose.setQ(i, _q);
+        }
+        const ip = rig.idx.pelvis;
+        pose.getP(ip, _v);
+        this.lastOut.getP(ip, _v2);
+        pose.setP(ip, _v.lerp(_v2, w));
+      }
+    }
     rig.write(pose);
   }
 
@@ -581,7 +655,7 @@ export class Rider {
       // ankle world position should equal boardWorld · ankleTarget
       const want = ankleTarget(leg, tgt.p, tgt.q, new THREE.Vector3()).applyMatrix4(boardWorld);
       const got = new THREE.Vector3().setFromMatrixPosition(bone.matrixWorld);
-      this.footErrorMm[li] = this.step && this.step.foot === li ? NaN : got.distanceTo(want) * 1000;
+      this.footErrorMm[li] = (this.step && this.step.foot === li) || this.phase !== 'ride' || this.blendFromT >= 0 ? NaN : got.distanceTo(want) * 1000;
     }
   }
 }

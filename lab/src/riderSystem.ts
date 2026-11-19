@@ -43,10 +43,23 @@ export class RiderSystem implements LabSystem {
     if (q.get('stance') === 'goofy') this.rider.setStance('goofy');
     if (q.has('torture')) this.rider.p.torture = q.get('torture') as Rider['p']['torture'];
     if (q.has('stability')) this.rider.p.stabilityOverride = parseFloat(q.get('stability')!);
+    if (q.has('phase')) this.startPhase = q.get('phase') as 'paddle';
+    if (q.has('popupAt')) this.popupAt = parseFloat(q.get('popupAt')!);
+    this.reset();
   }
 
+  /** Phase to (re)start in after a reset, and the automatic pop-up delay. */
+  startPhase: 'ride' | 'paddle' = 'ride';
+  popupAt = 3;
+
   reset(): void {
-    this.rider?.reset();
+    if (!this.rider) return;
+    this.rider.reset();
+    if (this.startPhase === 'paddle') {
+      this.rider.autoPopup = this.popupAt;
+      this.rider.setPhase('paddle');
+      this.rider['blendFromT'] = -1;
+    }
   }
 
   tick(lab: Lab, _t: number, dt: number): void {
@@ -92,6 +105,27 @@ export class RiderSystem implements LabSystem {
     ly.add(p, 'balance').name('balance (f_B)');
     ly.add(p, 'head').name('head stabilisation');
     ly.add(p, 'noise').name('stability noise');
+    const ph = f.addFolder('Phases (placeholder clips)');
+    const pa = {
+      paddle: () => {
+        this.rider.autoPopup = 0;
+        this.rider.setPhase('paddle');
+      },
+      popup: () => this.rider.setPhase('popup'),
+      sequence: () => {
+        this.startPhase = 'paddle';
+        lab.reset();
+      },
+      ride: () => {
+        this.startPhase = 'ride';
+        this.rider.setPhase('ride');
+      },
+    };
+    ph.add(pa, 'paddle').name('paddle');
+    ph.add(pa, 'popup').name('pop-up');
+    ph.add(pa, 'sequence').name('paddle → pop-up → ride (reset)');
+    ph.add(this, 'popupAt', 0.5, 10, 0.1).name('pop-up after (s)');
+    ph.add(pa, 'ride').name('ride');
     const act = { bad: () => this.rider.kick(1, 'bad'), fall: () => this.rider.fall() };
     f.add(act, 'bad').name('event: bad moment');
     f.add(act, 'fall').name('event: wipeout');

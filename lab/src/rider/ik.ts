@@ -138,3 +138,31 @@ export function solveLeg(rig: Rig, pose: Pose, leg: LegChain, target: THREE.Vect
   }
   return excess;
 }
+
+/**
+ * Arm chain for the same solver: upper arm → forearm → hand. The solver aligns the hinge with
+ * (upper-arm direction × elbow-apex direction); in the A-pose the elbow apex points backward
+ * (-Z), which gives these model-space hinge axes (measured on the Rocketbox rest skeleton).
+ */
+export function makeArmChain(rig: Rig, side: 'L' | 'R'): LegChain {
+  const up = rig.idx[side === 'L' ? 'upperarmL' : 'upperarmR'];
+  const fo = rig.idx[side === 'L' ? 'forearmL' : 'forearmR'];
+  const ha = rig.idx[side === 'L' ? 'handL' : 'handR'];
+  const pU = rig.restP(up, new THREE.Vector3());
+  const pF = rig.restP(fo, new THREE.Vector3());
+  const pH = rig.restP(ha, new THREE.Vector3());
+  const hingeModel = side === 'L' ? new THREE.Vector3(0.68, 0.72, 0.16) : new THREE.Vector3(0.68, -0.72, -0.16);
+  hingeModel.normalize();
+  const foRestQ = rig.restQ(fo, new THREE.Quaternion());
+  return {
+    thigh: up,
+    calf: fo,
+    foot: ha,
+    a: pF.distanceTo(pU),
+    b: pH.distanceTo(pF),
+    hingeLocal: hingeModel.applyQuaternion(foRestQ.clone().invert()),
+    footRestQ: rig.restQ(ha, new THREE.Quaternion()),
+    soleRestInv: new THREE.Quaternion(),
+    ankleInSole: new THREE.Vector3(),
+  };
+}
