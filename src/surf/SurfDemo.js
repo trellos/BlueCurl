@@ -19,7 +19,10 @@ import { Board } from './Board.js';
 
 const DRAFT = 0.022;               // the planing bottom sits this far below the mean surface at the stance
 const CAM_BACK = 4.0, CAM_UP = 2.0;
-const SAMPLE_DX = 0.75, SAMPLE_DZ = 0.2;   // nose / tail and rail sample offsets (m)
+const SAMPLE_DZ = 0.2;            // rail sample offset (m)
+const RAIL_DX = -0.1;              // rails sampled just behind the stance (the widest planing part)
+// centreline samples: board-space x (m, + toward the nose) and least-squares weight
+const LONG = [[-0.80, 1.0], [-0.45, 1.0], [-0.10, 1.0], [0.25, 0.6], [0.60, 0.2]];
 
 function mulberry32(a) {
   return function () {
@@ -43,6 +46,7 @@ const CYCLE = [
   { kind: 'turned', phase: 'return', a: -0.76, ja: 0.03, h: 0.25, jh: 0.06, d: 0.95, jd: 0.25 },
 ];
 const T_START = -40;
+const CAM_VIEW = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('cam') || 'chase' : 'chase';
 
 export class SurfDemo {
   constructor({ schedule, probe, shared, camera }) {
@@ -54,11 +58,12 @@ export class SurfDemo {
     this.camera = camera;
     this.board = new Board(shared);
     this.knots = [];
+    this.view = CAM_VIEW;           // 'chase' | 'side' | 'aerial'
     this.pos = { x: 0, z: 0 };     // focus (the camera's xz) for the swash window (SwashSim._focusX)
     this.reset();
   }
 
-  reset() { this.camY = null; this.camPitch = null; this.lastYaw = null; this.tel = null; this.lastT = null; }
+  reset() { this.camY = null; this.camPitch = null; this.lastYaw = null; this.tel = null; this.lastT = null; this.prevFwd = this.prevSide = this.prevUp = null; }
 
   // ---------------------------------------------------------------- keyframes (lazy, deterministic)
   _knot(i) {
@@ -150,29 +155,49 @@ export class SurfDemo {
     const r = new THREE.Vector3(-f.z, 0, f.x);          // right of travel (f x up)
     const hd = this.heading(t);
     const cx = x - CAM_BACK * hd[0], cz = z - CAM_BACK * hd[1];
-    // probe: centre, nose, tail, left, right, camera, then the metric points
-    const P = [[x, z], [x + SAMPLE_DX * f.x, z + SAMPLE_DX * f.z], [x - SAMPLE_DX * f.x, z - SAMPLE_DX * f.z],
-      [x - SAMPLE_DZ * r.x, z - SAMPLE_DZ * r.z], [x + SAMPLE_DZ * r.x, z + SAMPLE_DZ * r.z], [cx, cz]];
+    // ---------------------------------------------------------- contact with the rendered surface
+    // Samples along the board's centreline (tail .. nose) and at the rails, placed where those points
+    // of the board are (horizontal footprint of last frame's attitude, current heading), plus the
+    // camera's xz. The bottom (with its rocker) is fitted to the water heights by weighted least
+    // squares: height and pitch from the planing area (tail to mid; the rockered nose weighs little),
+    // roll from the rails. The origin then sits DRAFT below the fitted surface.
+    const cf = this.prevFwd ? Math.hypot(this.prevFwd.x, this.prevFwd.z) : 1;
+    const cs = this.prevSide ? Math.hypot(this.prevSide.x, this.prevSide.z) : 1;
+    const at = (dx, dz) => [x + f.x * dx * cf + r.x * dz * cs, z + f.z * dx * cf + r.z * dz * cs];
+    const P = LONG.map(([dx]) => at(dx, 0));
+    P.push(at(RAIL_DX, -SAMPLE_DZ), at(RAIL_DX, SAMPLE_DZ), [cx, cz]);
     const d = this.probe.sample(renderer, P);
-    const hC = d[0], hN = d[4], hT = d[8], hL = d[12], hR = d[16], hCam = d[20];
-    // surface slope along / across the direction of travel -> surface normal
-    const sf = (hN - hT) / (2 * SAMPLE_DX), sr = (hR - hL) / (2 * SAMPLE_DZ);
-    const n = new THREE.Vector3(0, 1, 0).addScaledVector(f, -sf).addScaledVector(r, -sr).normalize();
-    // carving: the board leans into the turn (lateral acceleration), up to ~25 degrees on the rail
+    const wAt = (k) => d[4 * k];
+    const nL = LONG.length, hL = wAt(nL), hR = wAt(nL + 1), hCam = wAt(nL + 2);
+    const cu = this.prevUp ? this.prevUp.y : 1;
+    let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+    LONG.forEach(([dx, wk], k) => {
+      const yk = wAt(k) - Board.bottomAt(dx) * cu;
+      sw += wk; sx += wk * dx; sy += wk * yk; sxx += wk * dx * dx; sxy += wk * dx * yk;
+    });
+    const den = sw * sxx - sx * sx;
+    const pRise = clamp(den > 1e-9 ? (sw * sxy - sx * sy) / den : 0, -0.85, 0.85);   // rise per metre of board
+    const y0 = (sy - pRise * sx) / sw;
+    const qRise = clamp((hR - hL) / (2 * SAMPLE_DZ), -0.85, 0.85);                 // rise per metre across
+    const fwd = f.clone().multiplyScalar(Math.sqrt(1 - pRise * pRise)).setY(pRise);
+    const sideS = r.clone().multiplyScalar(Math.sqrt(1 - qRise * qRise)).setY(qRise);
+    const n = new THREE.Vector3().crossVectors(sideS, fwd).normalize();
+    fwd.addScaledVector(n, -fwd.dot(n)).normalize();
+    // carving: the board leans into the turn (lateral acceleration), up to ~24 degrees on the rail
     const aLat = acc[0] * r.x + acc[1] * r.z;
     const bank = clamp(Math.atan2(aLat, CONFIG.g) * 0.6, -0.42, 0.42);
-    const fwd = f.clone().addScaledVector(n, -f.dot(n)).normalize();
     const up = n.clone().applyAxisAngle(fwd, bank).normalize();   // (+: right rail down)
-    const pos = new THREE.Vector3(x, hC - DRAFT, z);
+    const pos = new THREE.Vector3(x, y0 - DRAFT, z);
     this.board.setPose(pos, fwd, up);
-
-    // contact: board bottom vs the water at the four outer samples (positive = air gap)
     const side = new THREE.Vector3().crossVectors(fwd, up).normalize();
-    const gap = (dx, dz, hw) => {
-      const p = pos.clone().addScaledVector(fwd, dx).addScaledVector(side, dz).addScaledVector(up, Board.bottomAt(dx));
-      return p.y - hw;
-    };
-    const gaps = { nose: gap(SAMPLE_DX, 0, hN), tail: gap(-SAMPLE_DX, 0, hT), left: gap(0, -SAMPLE_DZ, hL), right: gap(0, SAMPLE_DZ, hR) };
+    this.prevFwd = fwd.clone(); this.prevSide = side.clone(); this.prevUp = up.clone();
+
+    // contact metrics: board bottom minus water height at every sample (+: air gap, -: immersed)
+    const gapAt = (dx, dz, hw) => pos.clone().addScaledVector(fwd, dx).addScaledVector(side, dz).addScaledVector(up, Board.bottomAt(dx)).y - hw;
+    const gl = LONG.map(([dx], k) => gapAt(dx, 0, wAt(k)));
+    const gaps = { tail: gl[0], midTail: gl[1], centre: gl[2], midNose: gl[3], nose: gl[4],
+      left: gapAt(RAIL_DX, -SAMPLE_DZ, hL), right: gapAt(RAIL_DX, SAMPLE_DZ, hR) };
+    const hC = wAt(2), hN = wAt(4), hT = wAt(0);
 
     // ---------------------------------------------------------- chase camera
     const boardY = pos.y;
@@ -190,6 +215,14 @@ export class SurfDemo {
     this.camPitch = this.camPitch === null ? pitchT : this.camPitch + (pitchT - this.camPitch) * kP;
     cam.rotation.order = 'YXZ';
     cam.rotation.set(this.camPitch, yaw, 0);
+    // diagnostic / evaluation views (?cam=side: from the shoreward side of the face; ?cam=aerial)
+    const view = this.view;
+    if (view === 'side' || view === 'aerial') {
+      const dir = Math.sign(this.event.aR1) || 1;
+      if (view === 'side') cam.position.set(x - 1.5 * dir, Math.max(boardY + 0.9, 1.2), z + 7.5);
+      else cam.position.set(x - 14 * dir, 11, z + 12);
+      cam.lookAt(x + 0.5 * dir, boardY + 0.3, z - 0.5);
+    }
     cam.updateMatrixWorld();
     this.pos.x = cx; this.pos.z = cz;
 

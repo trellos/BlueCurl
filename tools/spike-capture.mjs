@@ -83,6 +83,12 @@ for (const t of (opt('times') ? opt('times').split(',').map(Number) : [])) {
   const f = path.join(out, `t${t.toFixed(2)}.png`);
   await save(f);
   const tel = await telemetry();
+  // extra camera views of the same instant (surf mode: --views side,aerial)
+  for (const v of (opt('views') ? opt('views').split(',') : [])) {
+    await page.evaluate((vv) => { window.__surf.demo.view = vv; window.__scene.renderOnce(); window.__scene.renderer.getContext().finish(); }, v);
+    await save(path.join(out, `t${t.toFixed(2)}-${v}.png`));
+    await page.evaluate(() => { window.__surf.demo.view = 'chase'; window.__scene.renderOnce(); });
+  }
   report.frames.push({ t, seekMs: Date.now() - t0, file: path.basename(f), tel });
   console.log('still', t, (Date.now() - t0) + 'ms', tel ? JSON.stringify(tel) : '');
 }
