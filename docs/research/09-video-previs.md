@@ -3,6 +3,22 @@
 Status: draft v1 (2026-11-19). The tool recommendations in §2 are summarised from
 [07-ai-asset-tools.md](07-ai-asset-tools.md); check there for prices and licences.
 
+**Tools (from [07 §5–7](07-ai-asset-tools.md), all [Reported] unless noted there):**
+
+- **Stills and reference sheets:** Nano Banana Pro (primary) and gpt-image (secondary).
+  Midjourney can be used for hand-curated boards only; it has no official API.
+- **Video:**
+  - **Kling 4.0:** 30 s single takes, first/middle/last frame conditioning, up to 10 reference
+    images and 5 reference videos. That means real follow-cam footage can steer the camera.
+  - **Seedance 2.5:** 30 s takes, seeds, and a cheap 480p draft that can be upgraded to 1080p.
+  - **Veo 3.1:** the strongest reported water realism, but 8 s clips. It needs chaining.
+  - Runway's API reaches all three behind one key.
+- **Budget:** about $200–500 for the concept and previs phase. Run the bake-off in
+  [11 X7](11-experiments.md) first.
+- **Wave type:** the prompts deliberately describe **peeling reef and point breaks**. That is
+  the surfable wave the final piece needs, even though ShoreBreak currently models a beach
+  shore-break.
+
 ## 1. Purpose and rules
 
 The mockups set a **visual target**: what the final real-time piece should feel like.
