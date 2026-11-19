@@ -46,6 +46,11 @@ const CYCLE = [
   { kind: 'turned', phase: 'return', a: -0.76, ja: 0.03, h: 0.25, jh: 0.06, d: 0.95, jd: 0.25 },
 ];
 const T_START = -40;
+const FIXED_POSE = (() => {
+  const v = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('pose') : null;
+  const p = v ? v.split(',').map(Number) : null;
+  return p && p.length === 2 && p.every(Number.isFinite) ? p : null;
+})();
 const CAM_VIEW = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('cam') || 'chase' : 'chase';
 
 export class SurfDemo {
@@ -92,6 +97,8 @@ export class SurfDemo {
   }
   /** (alpha, h, phase) at time t: piecewise cubic Hermite through the knots */
   plan(t) {
+    // ?pose=alpha,h: hold one position on the wave (evaluation stills, e.g. under the lip)
+    if (FIXED_POSE) return { a: FIXED_POSE[0], h: FIXED_POSE[1], phase: 'fixed pose', u: 0 };
     t = Math.max(t, T_START);
     const i = this._seg(t);
     const k0 = this._knot(Math.max(i - 1, 0)), k1 = this._knot(i), k2 = this._knot(i + 1), k3 = this._knot(i + 2);

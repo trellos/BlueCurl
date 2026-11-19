@@ -33,7 +33,8 @@ if (args.includes('--dist')) {
   server = await preview({ root, logLevel: 'error', preview: { port: 0, strictPort: false } });
   port = server.httpServer.address().port;
 } else {
-  server = await createServer({ root, logLevel: 'error', server: { port: 0, strictPort: false, hmr: false, watch: null } });
+  // (own dependency cache per checkout: worktrees may share one node_modules)
+  server = await createServer({ root, logLevel: 'error', cacheDir: path.join(root, '.vite-spike-cache'), server: { port: 0, strictPort: false, hmr: false, watch: null } });
   await server.listen();
   port = server.httpServer.address().port;
 }
