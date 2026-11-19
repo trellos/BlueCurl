@@ -1,0 +1,282 @@
+<title>BlueCurl Look Book</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single editorial column (max 1180px) of chapters. Each art direction is a chapter
+   with a measured palette strip, a spec sheet and a reference grid. Cards open in a viewer. */
+:root{
+  --bg:#eef2f3; --surface:#ffffff; --ink:#0d2129; --muted:#4e636b; --line:#cdd8dc;
+  --sea:#2d6f7c; --gold:#a8681f; --chip:#dfe8eb;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0a1418; --surface:#11202a; --ink:#e3ecef; --muted:#9fb3ba; --line:#22363f;
+  --sea:#6fb3c0; --gold:#e3a95c; --chip:#183039; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0a1418; --surface:#11202a; --ink:#e3ecef; --muted:#9fb3ba; --line:#22363f;
+  --sea:#6fb3c0; --gold:#e3a95c; --chip:#183039; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:400 16px/1.55 var(--body);margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+h1,h2,h3{font-family:var(--display);font-weight:700;letter-spacing:.01em;line-height:1.05;text-wrap:balance;margin:0}
+h1{font-size:clamp(44px,8vw,88px);text-transform:uppercase}
+h2{font-size:clamp(30px,4.4vw,44px);text-transform:uppercase}
+h3{font-size:22px;text-transform:uppercase;letter-spacing:.03em}
+p{margin:0;max-width:68ch}
+a{color:var(--sea)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:19px;color:var(--muted);max-width:62ch}
+header.top{display:grid;gap:18px;padding-bottom:28px;border-bottom:1px solid var(--line)}
+.hero{display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-top:8px}
+.hero .side{display:grid;gap:8px}
+.hero figure{margin:0;position:relative;overflow:hidden;border-radius:4px;background:var(--chip);cursor:zoom-in}
+.hero img{width:100%;height:100%;object-fit:cover;display:block}
+.hero .main{aspect-ratio:3/2}
+.hero .side figure{aspect-ratio:16/9}
+.cap{position:absolute;left:0;right:0;bottom:0;padding:18px 10px 8px;font:500 11px/1.3 var(--mono);color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.6))}
+section.chapter{display:grid;gap:22px;padding-block:44px;border-bottom:1px solid var(--line)}
+.findings{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px 28px}
+.findings div{display:grid;gap:6px;min-width:0}
+.findings b{font-family:var(--display);font-size:20px;text-transform:uppercase;letter-spacing:.02em}
+.findings span{color:var(--muted)}
+.dir-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 16px}
+.badge{font:600 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:6px 9px;border-radius:3px;background:var(--chip);color:var(--ink)}
+.badge.hero-pick{background:var(--gold);color:#fff}
+.letter{font-family:var(--display);font-size:56px;line-height:.8;color:var(--sea)}
+.palette{display:grid;grid-template-columns:var(--cols);height:56px;border-radius:4px;overflow:hidden}
+.palette div{display:flex;align-items:flex-end;padding:4px 6px;font:500 10px/1 var(--mono)}
+.pal-note{font:400 12px/1.4 var(--mono);color:var(--muted)}
+.spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0 28px;border-top:1px solid var(--line)}
+.spec div{padding:10px 0;border-bottom:1px solid var(--line);min-width:0}
+.spec dt{font:500 11px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:3px}
+.spec dd{margin:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.card{display:grid;grid-template-rows:auto 1fr;background:var(--surface);border:1px solid var(--line);border-radius:4px;overflow:hidden;text-align:left;padding:0;font:inherit;color:inherit;cursor:zoom-in}
+.card img{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:var(--chip)}
+.card .meta{display:grid;gap:6px;padding:10px 12px 12px;align-content:start}
+.card .id{font:500 11px/1 var(--mono);color:var(--gold)}
+.card .why{font-size:14px;line-height:1.4}
+.card .credit{font:400 10.5px/1.35 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.cam{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:28px;align-items:start}
+.cam svg{width:100%;height:auto;background:var(--surface);border:1px solid var(--line);border-radius:4px}
+.cam ul{margin:0;padding-left:18px;display:grid;gap:6px}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+.tbl{overflow-x:auto}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.cost{font:600 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:4px 7px;border-radius:3px;white-space:nowrap}
+.c-cheap{background:#2f7d5b22;color:var(--sea)}
+.c-mod{background:#c08a3e26;color:var(--gold)}
+.c-no{background:#b4432f22;color:#c4553f}
+.links{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px 28px}
+.links a{display:block;padding:9px 0;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink)}
+.links a small{display:block;color:var(--muted);font-size:13.5px}
+.note{font-size:14px;color:var(--muted)}
+dialog{border:0;padding:0;max-width:min(1100px,94vw);background:var(--surface);color:var(--ink);border-radius:6px}
+dialog::backdrop{background:rgba(5,12,15,.82)}
+dialog img{display:block;max-width:100%;max-height:76vh;margin:0 auto}
+dialog .dmeta{padding:12px 16px 16px;display:grid;gap:6px}
+dialog button{position:absolute;top:8px;right:8px;font:600 12px/1 var(--mono);padding:8px 10px;border:0;border-radius:3px;background:rgba(0,0,0,.6);color:#fff;cursor:pointer}
+footer{padding-top:32px;display:grid;gap:10px}
+.credits{columns:2 320px;column-gap:28px;font:400 11.5px/1.5 var(--mono);color:var(--muted)}
+.credits div{break-inside:avoid;margin-bottom:4px}
+@media (max-width:760px){.hero{grid-template-columns:1fr}.cam{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:no-preference){.card img{transition:filter .2s}.card:hover img{filter:brightness(1.06)}}
+</style>
+<script>
+window.REFS=[{"id": 1, "t": "Surf Loch - Cheyne Barrel - Mar 5, 2020", "p": "https://commons.wikimedia.org/wiki/File:Surf_Loch_-_Cheyne_Barrel_-_Mar_5,_2020.jpg", "a": "SurfLoch", "l": "CC BY-SA 4.0", "w": "Wave-pool barrel (Palm Springs) shot from the pool deck; the only CC wave-pool action still found. NOTE pool turquoise is not ocean colour."}, {"id": 3, "t": "Surfer paddling out into waves", "p": "https://commons.wikimedia.org/wiki/File:Surfer_paddling_out_into_waves.jpg", "a": "bigwavephoto", "l": "CC BY-SA 4.0", "w": "REAR VIEW of a paddler backlit by low sun: our paddling-phase framing."}, {"id": 5, "t": "Paddle out bikini (28449735881)", "p": "https://commons.wikimedia.org/wiki/File:Paddle_out_bikini_(28449735881", "a": "troy_williams", "l": "CC BY 2.0", "w": "REAR VIEW paddling, bikini, wet skin specular, wake off the board."}, {"id": 6, "t": "Longboard (surf) GOPR4306 copy (48934962408)", "p": "https://commons.wikimedia.org/wiki/File:Longboard_(surf", "a": "Tom Reynolds from Melbourne, Australia", "l": "CC BY 2.0", "w": "GoPro at water level just behind/beside a rider: horizon at chest height, palms and land beyond. Closest still to our chase framing."}, {"id": 7, "t": "Henry Espinoza Panta smashing a wave at Lobitos", "p": "https://commons.wikimedia.org/wiki/File:Henry_Espinoza_Panta_smashing_a_wave_at_Lobitos.jpg", "a": "Freddy Sinarahua", "l": "CC BY-SA 4.0", "w": "Backlit top-turn: spray fan lit from behind, green translucent face, black wetsuit sheen. Best single \"B\" frame."}, {"id": 8, "t": "Surfer in california 2", "p": "https://commons.wikimedia.org/wiki/File:Surfer_in_california_2.JPG", "a": "Brocken Inaglory", "l": "CC BY-SA 3.0", "w": "Gash/cutback throwing a 180-degree spray curtain; shows how one power turn fills the frame with spray."}, {"id": 9, "t": "2010 mavericks competition edit1", "p": "https://commons.wikimedia.org/wiki/File:2010_mavericks_competition_edit1.jpg", "a": "Shalom Jacobovitz (edit of 2010_mavericks_competition.jpg)", "l": "CC BY-SA 2.0", "w": "Shot from a boat at near water level: drop scale, heavy lip, cold dark green-grey water, yellow jersey reads instantly."}, {"id": 10, "t": "La horde - Surfers riding a wave in Paea, Tahiti", "p": "https://commons.wikimedia.org/wiki/File:La_horde_-_Surfers_riding_a_wave_in_Paea,_Tahiti.jpg", "a": "Brigitte Bourger", "l": "CC BY-SA 4.0", "w": "Tahiti midday: deep saturated blue, clean whitewater, multiple riders; natural not stylised saturation."}, {"id": 13, "t": "Afterburners Engaged (32208303048)", "p": "https://commons.wikimedia.org/wiki/File:Afterburners_Engaged_(32208303048", "a": "Jason Jacobs from Honolulu, USA", "l": "CC BY 2.0", "w": "North Shore: offshore wind blowing spray off a thick lip, surfer racing ahead of the foam ball."}, {"id": 15, "t": "Contemplating Life's Decisions (46596397414)", "p": "https://commons.wikimedia.org/wiki/File:Contemplating_Life%27s_Decisions_(46596397414", "a": "Jason Jacobs from Honolulu, USA", "l": "CC BY 2.0", "w": "Pipeline: translucent turquoise lip over the surfer, huge foam field in the foreground."}, {"id": 17, "t": "Tubular (37597811302)", "p": "https://commons.wikimedia.org/wiki/File:Tubular_(37597811302", "a": "Jason Jacobs from Honolulu, USA", "l": "CC BY 2.0", "w": "Backlit turquoise lip, boardshorts, rail turn; spray lit from behind. Best single \"A\" frame."}, {"id": 21, "t": "Surfing in the blue (Unsplash)", "p": "https://commons.wikimedia.org/wiki/File:Surfing_in_the_blue_(Unsplash", "a": "Johannes Andersson thejoltjoker", "l": "CC0", "w": "Deep cobalt Pipeline face; strong value contrast between face and whitewater."}, {"id": 23, "t": "Surf sur la Vague de Teahupoo (Tahiti) (Ifremer 00783-89468 - 49350)", "p": "https://commons.wikimedia.org/wiki/File:Surf_sur_la_Vague_de_Teahupoo_(Tahiti", "a": "Olivier Dugornay (IFREMER)", "l": "CC BY 4.0", "w": "Teahupoo (IFREMER): glassy face texture, offshore-feathered lip, cloud-dappled tropical light."}, {"id": 24, "t": "Lance's Right", "p": "https://commons.wikimedia.org/wiki/File:Lance%27s_Right.jpg", "a": "Pathofkarma", "l": "CC BY-SA 4.0", "w": "Mentawai under high overcast: tropical water with no direct sun; argues for an overcast-tropical variant."}, {"id": 26, "t": "Mysovskiy Sergey surfing Nazare", "p": "https://commons.wikimedia.org/wiki/File:Mysovskiy_Sergey_surfing_Nazare.jpg", "a": "Alohamansurfer", "l": "CC BY-SA 4.0", "w": "Nazare: rider dwarfed by the wave, Atlantic blue-grey; scale reference."}, {"id": 34, "t": "South Swell Surf (6-4-13-6-5-13) - Bowls (9181164408)", "p": "https://commons.wikimedia.org/wiki/File:South_Swell_Surf_(6-4-13-6-5-13", "a": "Daniel Ramirez from Honolulu, USA", "l": "CC BY 2.0", "w": "Overcast Oahu barrel: grey-green water under soft light."}, {"id": 35, "t": "Surfing on the North Shore - near Sunset Beach (13922699221)", "p": "https://commons.wikimedia.org/wiki/File:Surfing_on_the_North_Shore_-_near_Sunset_Beach_(13922699221", "a": "Daniel Ramirez from Honolulu, USA", "l": "CC BY 2.0", "w": "Female surfer seen from behind in a bikini mid-turn: rear three-quarter body read."}, {"id": 37, "t": "Malibu surfer at sea (Unsplash)", "p": "https://commons.wikimedia.org/wiki/File:Malibu_surfer_at_sea_(Unsplash", "a": "Terrell Woods terrellcwoods", "l": "CC0", "w": "REAR VIEW of a female surfer in a wetsuit wading with board."}, {"id": 38, "t": "Waxing a surfboard", "p": "https://commons.wikimedia.org/wiki/File:Waxing_a_surfboard.jpg", "a": "LCpl Amber Basgil, USMC (DoD)", "l": "Public domain", "w": "Wax application, rash vest, board deck; public domain."}, {"id": 40, "t": "Surfboards,Hawaii - panoramio", "p": "https://commons.wikimedia.org/wiki/File:Surfboards,Hawaii_-_panoramio.jpg", "a": "Ernst Krenger", "l": "CC BY 3.0", "w": "Rental rack: deck colours, sprays, traction pads, nose shapes side by side."}, {"id": 41, "t": "Mirissa - surfboards", "p": "https://commons.wikimedia.org/wiki/File:Mirissa_-_surfboards.jpg", "a": "Dan arndt", "l": "CC BY-SA 4.0", "w": "Longboards with resin tints and pinlines on a tropical beach; colour palette for boards."}, {"id": 43, "t": "Fins in the fog (15381510962)", "p": "https://commons.wikimedia.org/wiki/File:Fins_in_the_fog_(15381510962", "a": "Ruth Hartnup from Vancouver, Canada", "l": "CC BY 2.0", "w": "Board fin and deck in sea fog; fog density and colour."}, {"id": 44, "t": "FreddyOlander", "p": "https://commons.wikimedia.org/wiki/File:FreddyOlander.jpg", "a": "Freddhartha", "l": "CC BY-SA 4.0", "w": "Full black wetsuit wet sheen on a real athlete body, full-length; shows how neoprene reads wet."}, {"id": 46, "t": "Surfer in wetsuit carries his surboard on the beach", "p": "https://commons.wikimedia.org/wiki/File:Surfer_in_wetsuit_carries_his_surboard_on_the_beach.JPG", "a": "Johntex", "l": "CC BY 2.5", "w": "Rear three-quarter wetsuit: panels, seams, sheen; board with leash."}, {"id": 47, "t": "Shorty-wetsuit-O'Neill", "p": "https://commons.wikimedia.org/wiki/File:Shorty-wetsuit-O%27Neill.jpg", "a": "Clemens Pfeiffer, Vienna", "l": "CC BY 2.5", "w": "Spring-suit panel layout, colour blocking, logo placement (O'Neill, c.1995)."}, {"id": 48, "t": "Uluwatu bingin balangan bali travel photos wokshots-8813", "p": "https://commons.wikimedia.org/wiki/File:Uluwatu_bingin_balangan_bali_travel_photos_wokshots-8813.jpg", "a": "Wokshots", "l": "CC BY-SA 4.0", "w": "Bukit limestone cliffs with reef waves, seen from the sea side; Indonesian palette."}, {"id": 50, "t": "Praia dos Supertubos - Peniche - Portugal (51531948162)", "p": "https://commons.wikimedia.org/wiki/File:Praia_dos_Supertubos_-_Peniche_-_Portugal_(51531948162", "a": "Vitor Oliveira from Torres Vedras, PORTUGAL", "l": "CC BY-SA 2.0", "w": "Peniche coast seen from the water: low dunes, striped lighthouse, wind turbines: what land looks like from the sea."}, {"id": 51, "t": "Peniche Portugal February 2015 25", "p": "https://commons.wikimedia.org/wiki/File:Peniche_Portugal_February_2015_25.jpg", "a": "Bengt Nyman", "l": "CC BY-SA 4.0", "w": "Peniche wave with offshore spray, headland and town behind; wide panoramic."}, {"id": 53, "t": "Lighthouse overlooking the waves (Unsplash)", "p": "https://commons.wikimedia.org/wiki/File:Lighthouse_overlooking_the_waves_(Unsplash", "a": "Rob Bye robertbye", "l": "CC0", "w": "Nazare lighthouse with a surfer on a big wave behind it: scale and landmark."}, {"id": 54, "t": "NAZARÉ - high waves (31604379272)", "p": "https://commons.wikimedia.org/wiki/File:NAZAR%C3%89_-_high_waves_(31604379272", "a": "Luis Ascenso from Lisbon, Portugal", "l": "CC BY 2.0", "w": "Nazare fort, exploding wave, broken cumulus: archetypal C."}, {"id": 56, "t": "Muriwai surf", "p": "https://commons.wikimedia.org/wiki/File:Muriwai_surf.jpg", "a": "Follash", "l": "CC BY-SA 4.0", "w": "Salt haze hanging over a temperate coast, layered headlands."}, {"id": 57, "t": "Surfer Cox Bay Tofino 6969", "p": "https://commons.wikimedia.org/wiki/File:Surfer_Cox_Bay_Tofino_6969.jpg", "a": "ImagePerson", "l": "CC BY 4.0", "w": "Temperate overcast, wetsuit silhouette on wet sand, forested headland."}, {"id": 58, "t": "View across Waimea Bay (12598593913)", "p": "https://commons.wikimedia.org/wiki/File:View_across_Waimea_Bay_(12598593913", "a": "Daniel Ramirez from Honolulu, USA", "l": "CC BY 2.0", "w": "Waimea Bay seen from the water: church tower, palms, lava rocks."}, {"id": 59, "t": "Surfing Rainbow", "p": "https://commons.wikimedia.org/wiki/File:Surfing_Rainbow.JPG", "a": "Brocken Inaglory", "l": "CC BY-SA 3.0", "w": "Offshore spray with rainbow, looking from the sea toward the land: exactly our camera's view direction."}, {"id": 60, "t": "Sea spray (Unsplash)", "p": "https://commons.wikimedia.org/wiki/File:Sea_spray_(Unsplash", "a": "Teddy Kelley teddykelley", "l": "CC0", "w": "Pastel golden-hour sky, spray halo around a turning surfer, cool blue water: soft version of B."}, {"id": 61, "t": "Fortune Favors the Brave (44424357600)", "p": "https://commons.wikimedia.org/wiki/File:Fortune_Favors_the_Brave_(44424357600", "a": "Jason Jacobs from Honolulu, USA", "l": "CC BY 2.0", "w": "Dark, moody backlit mist band on the horizon with a lone surfer: tonal reference for C."}, {"id": 63, "t": "San diego surfer sunset (Unsplash)", "p": "https://commons.wikimedia.org/wiki/File:San_diego_surfer_sunset_(Unsplash", "a": "frank mckenna frankiefoto", "l": "CC0", "w": "Pier, golden haze, wet-sand mirror; Californian golden-hour palette."}, {"id": 64, "t": "Surfer at sunset (15709034809)", "p": "https://commons.wikimedia.org/wiki/File:Surfer_at_sunset_(15709034809", "a": "François Bianco", "l": "CC BY-SA 2.0", "w": "Backlit silhouette running through shallows: rim-lit droplets and splashes."}, {"id": 65, "t": "Preparing to surf the wave (Unsplash)", "p": "https://commons.wikimedia.org/wiki/File:Preparing_to_surf_the_wave_(Unsplash", "a": "Jeremy Bishop tidesinourveins", "l": "CC0", "w": "Fog/haze with grey sky, surfer in wetsuit: flat-light, low-contrast look for C."}, {"id": 66, "t": "Big wave breaking in Santa Cruz", "p": "https://commons.wikimedia.org/wiki/File:Big_wave_breaking_in_Santa_Cruz.jpg", "a": "Brocken Inaglory", "l": "CC BY-SA 3.0", "w": "Backlit lip translucency and spray veil, small surfer below."}, {"id": 68, "t": "Praia do Norte (Nazaré) 01", "p": "https://commons.wikimedia.org/wiki/File:Praia_do_Norte_(Nazar%C3%A9", "a": "GualdimG", "l": "CC BY-SA 4.0", "w": "Sea fog rolling over Praia do Norte: haze reference."}, {"id": 70, "t": "Big Sur.fog", "p": "https://commons.wikimedia.org/wiki/File:Big_Sur.fog.png", "a": "Roger469", "l": "CC BY-SA 3.0", "w": "Marine layer and aerial perspective over the California coast."}, {"id": 71, "t": "Surfer in Malibu (Unsplash)", "p": "https://commons.wikimedia.org/wiki/File:Surfer_in_Malibu_(Unsplash", "a": "Cam Adams camadams", "l": "CC0", "w": "Golden haze over Malibu bluffs; warm backlight and blown sky."}, {"id": 72, "t": "Sunrise surfer (Unsplash)", "p": "https://commons.wikimedia.org/wiki/File:Sunrise_surfer_(Unsplash", "a": "frank mckenna frankiefoto", "l": "CC0", "w": "Sun-flare rim light on a wetsuit from behind."}, {"id": 74, "t": "Adrenaline (Unsplash)", "p": "https://commons.wikimedia.org/wiki/File:Adrenaline_(Unsplash", "a": "Thomas Ashlock thomas_ashlock", "l": "CC0", "w": "Spray off a top turn against cobalt water; droplet size distribution."}, {"id": 75, "t": "Sea spray in the Santa Anas", "p": "https://commons.wikimedia.org/wiki/File:Sea_spray_in_the_Santa_Anas.jpg", "a": "Ruff tuff cream puff", "l": "CC0", "w": "Offshore (Santa Ana) wind tearing spray off a lip in warm light: key FX reference."}, {"id": 77, "t": "Water droplets splash in the air", "p": "https://commons.wikimedia.org/wiki/File:Water_droplets_splash_in_the_air.jpg", "a": "銀河市長", "l": "CC BY-SA 4.0", "w": "Macro droplet shapes and streaks: drives particle sprite design."}, {"id": 78, "t": "Frozen Motion (224752391)", "p": "https://commons.wikimedia.org/wiki/File:Frozen_Motion_(224752391", "a": "Alex A", "l": "CC0", "w": "Backlit spray frozen against dark rock and water."}];</script>
+<div class="wrap">
+<header class="top">
+  <span class="eyebrow">BlueCurl · art direction research · 19 Nov 2026</span>
+  <h1>BlueCurl Look Book</h1>
+  <p class="lede">Visual references and art direction for a realistic, real-time surfing visualization seen from a continuous rear chase camera. Every image below is a Creative Commons or public-domain photograph from Wikimedia Commons, credited under its card. The full research lives in <code>docs/research/</code> in the repository.</p>
+  <div class="hero">
+    <figure class="main" data-id="7"><img src="img/07.jpg" alt="Surfer in a black wetsuit throwing a backlit spray fan off a green wave face"><figcaption class="cap">IMG-07 · the hero look: backlit spray, wet neoprene</figcaption></figure>
+    <div class="side">
+      <figure data-id="17"><img src="img/17.jpg" alt="Surfer in boardshorts turning under a translucent turquoise lip"><figcaption class="cap">IMG-17 · turquoise only through the lip</figcaption></figure>
+      <figure data-id="6"><img src="img/06.jpg" alt="Water-level view from behind a longboarder with palms beyond"><figcaption class="cap">IMG-06 · closest still to our chase framing</figcaption></figure>
+    </div>
+  </div>
+</header>
+
+<section class="chapter" aria-labelledby="f-h">
+  <span class="eyebrow">What the references taught us</span>
+  <h2 id="f-h">Six findings</h2>
+  <div class="findings">
+    <div><b>Real colour is quieter</b><span>Measured palettes show tropical water as teal and jade, not candy turquoise. Turquoise appears only where sunlight passes through the lip. Whitewater fills 25–45% of the frame.</span></div>
+    <div><b>Spray is frozen</b><span>Sports photography freezes spray at about 1/1000 s. Backlit spray is often the brightest thing in the frame. Smeared, motion-blurred spray reads as CG.</span></div>
+    <div><b>The silhouette reads first</b><span>From behind, posture and weight carry the shot: stance width, knee bend, shoulder line, arms. Faces barely matter. Wet skin and neoprene show broken, streaky highlights.</span></div>
+    <div><b>Continuous chase footage barely exists</b><span>Real media offers short follow-cam bursts and drone passes. Our camera has to combine follow-cam closeness with drone stability, with a level horizon and no fisheye.</span></div>
+    <div><b>Games get the camera wrong</b><span>Every surf game draws the same complaint: the camera is too close to read the wave. Board-sport games that add a filmer keep fisheye as an option, never the default.</span></div>
+    <div><b>Haze sells distance</b><span>Behind the wave, the coast is a few stacked, hazy silhouettes. Scale in big surf comes from foam fields and mist, not wave height alone.</span></div>
+  </div>
+</section>
+
+<div id="directions"></div>
+
+<section class="chapter" aria-labelledby="cam-h">
+  <span class="eyebrow">Camera</span>
+  <h2 id="cam-h">Rear chase specification</h2>
+  <div class="cam">
+    <svg viewBox="0 0 760 260" role="img" aria-labelledby="cam-svg-t">
+      <title id="cam-svg-t">Side view: the camera sits 5 metres behind and 2 metres above the water, with a 45 degree vertical field of view aimed just ahead of the surfer</title>
+      <defs><clipPath id="sky"><rect x="0" y="0" width="760" height="200"/></clipPath></defs>
+      <polygon points="220,80 760,-70 760,200 432,200" clip-path="url(#sky)" style="fill:var(--sea);opacity:.12"/>
+      <line x1="220" y1="80" x2="760" y2="-70" style="stroke:var(--sea);stroke-dasharray:4 4"/>
+      <line x1="220" y1="80" x2="432" y2="200" style="stroke:var(--sea);stroke-dasharray:4 4"/>
+      <line x1="220" y1="80" x2="610" y2="128" style="stroke:var(--gold);stroke-width:1.5"/>
+      <rect x="0" y="200" width="760" height="60" style="fill:var(--sea);opacity:.25"/>
+      <line x1="0" y1="200" x2="760" y2="200" style="stroke:var(--sea)"/>
+      <rect x="470" y="194" width="110" height="6" rx="3" style="fill:var(--ink)"/>
+      <g style="fill:var(--ink)">
+        <circle cx="522" cy="104" r="8"/>
+        <path d="M512 114 L532 114 L536 150 L526 150 L522 128 L518 150 L508 150 Z"/>
+        <path d="M512 150 L500 194 L509 194 L522 160 L535 194 L544 194 L532 150 Z"/>
+        <path d="M512 118 L486 136 L489 141 L514 127 Z M532 118 L558 134 L555 139 L530 127 Z"/>
+      </g>
+      <rect x="208" y="72" width="24" height="16" rx="3" style="fill:var(--gold)"/>
+      <line x1="220" y1="88" x2="220" y2="200" style="stroke:var(--muted);stroke-dasharray:2 3"/>
+      <line x1="220" y1="226" x2="522" y2="226" style="stroke:var(--muted)"/>
+      <g style="fill:var(--ink);font:500 13px var(--mono)">
+        <text x="300" y="246">5 m back (4–7)</text>
+        <text x="96" y="146">2 m up</text>
+        <text x="96" y="162" style="fill:var(--muted);font-size:11px">(1.6–2.5; ~1 m paddling)</text>
+        <text x="300" y="40">45° vertical FOV (40–50)</text>
+        <text x="612" y="122" style="fill:var(--gold)">aim 1–2 m ahead</text>
+      </g>
+    </svg>
+    <div style="display:grid;gap:14px;min-width:0">
+      <ul>
+        <li><b>Horizon level</b>, like a gimbal. Pass through only 15–30% of the board's roll.</li>
+        <li><b>Lag</b>: a critically damped spring, 0.3–0.5 s on yaw and 0.2 s on height. In a bottom turn the camera swings wide and reveals the wave face.</li>
+        <li><b>Distance stretches</b> to 8–10 m at speed and on airs, and tightens to about 3 m in the barrel.</li>
+        <li><b>Rectilinear lens only</b>. Fisheye is the biggest "action cam / game" tell.</li>
+        <li><b>Head never crosses the horizon</b>. The lens sits 0.5–1 m above the surfer's head.</li>
+      </ul>
+      <p class="note">Starting values come from studying follow-cam, pole-cam and drone rigs. A reviewer should watch the clips below before we lock them.</p>
+    </div>
+  </div>
+  <div class="grid" data-ids="6 3 5 1"></div>
+</section>
+
+<section class="chapter" aria-labelledby="body-h">
+  <span class="eyebrow">Character, apparel and boards</span>
+  <h2 id="body-h">The body from behind</h2>
+  <p>Spend modelling, texture and animation effort on the back, shoulders, legs, feet on the deck and hands. Wet neoprene hides deformation and reads strongly in silhouette, so milestone 1 starts in a spring suit. Bare skin is a variant until it passes the character bake-off. Boards read through their materials: sanded finish, wax, tail pad with kick, resin tints, pinlines.</p>
+  <div class="grid" data-ids="35 46 44 37 47 38 40 41"></div>
+</section>
+
+<section class="chapter" aria-labelledby="fx-h">
+  <span class="eyebrow">Effects</span>
+  <h2 id="fx-h">Spray, droplets and wind</h2>
+  <p>A spray fan is lit from behind, frozen and coarse at the edges. Offshore wind tears a veil off every lip, and catches a rainbow when the sun is behind the camera. Droplet shapes drive the particle sprites.</p>
+  <div class="grid" data-ids="74 78 77 8 66 59"></div>
+</section>
+
+<section class="chapter" aria-labelledby="coast-h">
+  <span class="eyebrow">Environment</span>
+  <h2 id="coast-h">The coast as seen from the water</h2>
+  <p>At 1440p, one metre covers about 3 pixels at 500 m and 0.15 pixels at 10 km. Beyond about 2 km only silhouette, tone and haze remain, so environments are stacked silhouette bands, mid-distance cliffs and impostor vegetation. Detailed buildings and beaches aren't needed.</p>
+  <div class="grid" data-ids="50 58 48 56 70"></div>
+</section>
+
+<section class="chapter" aria-labelledby="watch-h">
+  <span class="eyebrow">Footage and games · links only, copyrighted</span>
+  <h2 id="watch-h">Watch before locking the camera</h2>
+  <p class="note">These clips were found by search but could not be watched from the research environment. The notes say what to look for.</p>
+  <div class="links">
+    <a href="https://www.youtube.com/watch?v=Jth981Uw3pQ">Morgan Maassen follow-cam, Santa Barbara<small>Professional follow-cam framing; distance through turns</small></a>
+    <a href="https://www.youtube.com/watch?v=XcqazIRbDoQ">TransWorld SURF, Lowers GoPro follow cam<small>Performance surfing from behind; spray hitting the lens</small></a>
+    <a href="https://www.youtube.com/watch?v=5o4e5vLsIIk">Pole cam behind a surfer, Morro Rock<small>Raised rear angle, closest to our height</small></a>
+    <a href="https://www.youtube.com/watch?v=5F7mDXhkPmY">Kai Lenny at Teahupo'o, drone<small>Smooth lagging rear-quarter tracking at speed</small></a>
+    <a href="https://www.youtube.com/watch?v=_WzAhGXEk7Y">Nazaré jet-ski POV, raw<small>Scale, chop and mist from water level</small></a>
+    <a href="https://vimeo.com/108799588">Chris Bryan, Surfing @ 1000 FPS<small>Spray break-up and the body under load</small></a>
+    <a href="https://www.youtube.com/watch?v=bTqVqk7FSmY">View From A Blue Moon, trailer<small>Modern surf cinematography benchmark</small></a>
+    <a href="https://www.youtube.com/watch?v=WR3s9yj93KU">Following the follow-cam filmer, LAAX Open<small>Board-sport filmers holding distance; transferable</small></a>
+    <a href="https://store.steampowered.com/app/1776170/">Barton Lynch Pro Surfing<small>Functional reference; reviews call the camera too close</small></a>
+    <a href="https://en.wikipedia.org/wiki/Steep_(video_game)">Steep<small>Calm, low trailing board-sport chase; fisheye only as a mode</small></a>
+  </div>
+</section>
+
+<section class="chapter" aria-labelledby="cost-h">
+  <span class="eyebrow">Feasibility in the browser</span>
+  <h2 id="cost-h">What we can afford</h2>
+  <p class="note">Desktop Chrome, WebGL2, Three.js, 1440p at 60 fps. The water renderer gets first claim on the frame budget.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Visual quality</th><th>Cost</th><th>Approach</th></tr></thead>
+    <tbody>
+      <tr><td>Physical sky, moving sun, golden hour, haze</td><td><span class="cost c-cheap">cheap</span></td><td>Precomputed atmosphere baked into a sky LUT shared with the water</td></tr>
+      <tr><td>Sun shadow on the board; water bounce light on the body</td><td><span class="cost c-cheap">cheap</span></td><td>One tight 2048² shadow map; lower-hemisphere sea lighting plus a mirrored-sun fill</td></tr>
+      <tr><td>Backlit spray, droplets, rainbow</td><td><span class="cost c-cheap">cheap</span></td><td>GPU particles with forward scattering, frozen-shutter look</td></tr>
+      <tr><td>Wet skin and neoprene, drying over time</td><td><span class="cost c-mod">moderate</span></td><td>Clearcoat water film, wetness masks, droplet normals</td></tr>
+      <tr><td>Dramatic clouds</td><td><span class="cost c-mod">moderate</span></td><td>2D layers, relit cloud cards, cloud shadows</td></tr>
+      <tr><td>Skin subsurface scattering</td><td><span class="cost c-mod">approximate</span></td><td>Pre-integrated skin plus wrap transmission</td></tr>
+      <tr><td>Hair</td><td><span class="cost c-mod">cards only</span></td><td>Short wet clumped hair is the easy case</td></tr>
+      <tr><td>Volumetric clouds, ray-marched light shafts</td><td><span class="cost c-no">too costly</span></td><td>Fake shafts in screen space</td></tr>
+      <tr><td>Surfer reflected in the water</td><td><span class="cost c-no">too costly</span></td><td>Skip; real footage rarely shows it clearly</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>
+  <span class="eyebrow">Image credits</span>
+  <p class="note">All images from Wikimedia Commons. CC BY and CC BY-SA images are shown unaltered, apart from resizing, and are credited here and on each card.</p>
+  <div class="credits" id="credits"></div>
+</footer>
+</div>
+
+<dialog id="viewer" aria-label="Reference image">
+  <button type="button" id="close">Close</button>
+  <img id="v-img" alt="">
+  <div class="dmeta"><span class="id" id="v-id" style="font:500 12px var(--mono);color:var(--gold)"></span><span id="v-why"></span><span class="credit" id="v-credit" style="font:400 11.5px/1.4 var(--mono);color:var(--muted)"></span></div>
+</dialog>
+
+<script>
+const DIRS=[
+ {k:"B",name:"Golden Hour Cinematic",badge:"Hero look",hero:true,tone:"Beauty, reverie, mastery: the last wave of the day. Riding toward the sun turns the surfer into a rim-lit silhouette and makes the spray the brightest thing in the frame, which suits a camera that always looks over the surfer's back.",
+  pal:["#292420","#4e4a41","#636c68","#8f7a5b","#bab2a5","#e9e3d7","#fdf0de"],w:[11,14,12,15,16,20,12],
+  spec:[["Light","Sun 3–15° up. Backlit spray, rim light on hair and wetsuit; warm raking key when riding away from the sun"],["Water","Olive to steel-blue faces, a gold specular path toward the sun"],["Grade","Filmic highlight roll-off, warm highlights, cool shadows; halation only on spray and the sun path"],["Character","2 mm spring suit or 3/2 wetsuit, wet sheen"],["Cost","Medium: needs excellent exposure, bloom and spray phase shading"],["Risk","Over-grading into teal-and-orange kitsch"]],
+  ids:[7,75,64,63,72,60,71,3]},
+ {k:"D",name:"Soft Overcast",badge:"Engineering baseline",tone:"Proposed by the reference study. High thin cloud over tropical or temperate water: soft teal, no sparkle, the sky dome doing the lighting. It is the cheapest look to make believable, and it separates animation errors from lighting errors.",
+  pal:["#4a5050","#818480","#95999a","#a3a2a2","#afb3b5","#c1c1bf","#d3d2cf"],w:[10,13,14,14,21,17,11],
+  spec:[["Light","Bright overcast, soft directional sky light, no hard contact shadows"],["Water","Soft teal to grey-green; foam reads by texture, not glare"],["Use","Weather variant for every location; default during character and animation development"],["Cost","Low"]],
+  ids:[24,34,65,57]},
+ {k:"C",name:"Atlantic Power",badge:"Second location",tone:"Awe, scale and commitment. Slate water, foam fields and mist under broken storm light, with headlands, a lighthouse and stone villages stacked in haze.",
+  pal:["#2f3438","#524a3e","#4c6984","#73787c","#99a4ae","#bac1c8","#d0d8de"],w:[8,16,16,12,17,19,12],
+  spec:[["Light","Broken cloud with moving sun shafts and cloud shadows"],["Water","Dark slate-green, heavy texture, streaked foam"],["Grade","Cool, muted, slightly lifted blacks, foam texture preserved"],["Character","4/3 wetsuit, optional hood: forgiving for the character"],["Cost","Medium: the sky and clouds carry this look"],["Risk","Grey and dull without directional light and drama in the sky"]],
+  ids:[54,9,26,53,51,68,61,44]},
+ {k:"A",name:"Tropical Clarity",badge:"Last, despite appearances",tone:"Freedom and vitality: Hawaii and Indonesia under a high sun. Cheap to render but the least forgiving: hard sun on bare skin exposes every shading, deformation and contact flaw.",
+  pal:["#2d5564","#568d99","#929fa9","#99bdc5","#bbc9d6","#d8d6d7","#ebeff1"],w:[22,15,12,11,14,12,14],
+  spec:[["Light","Sun 35–55° up, never noon; crisp shadows, strong blue bounce from the water"],["Water","Teal and cobalt; turquoise only through the lip"],["Grade","Near-neutral filmic, honest saturation, whites just below clipping"],["Character","Boardshorts or rash vest; bare skin is the hardest case"],["Cost","Low to render, high believability risk"]],
+  ids:[17,23,10,15,21,13]}
+];
+const BY={};(window.REFS||[]).forEach(r=>BY[r.id]=r);
+const LIC={"CC0":"https://creativecommons.org/publicdomain/zero/1.0/","CC BY 2.0":"https://creativecommons.org/licenses/by/2.0/","CC BY 2.5":"https://creativecommons.org/licenses/by/2.5/","CC BY 3.0":"https://creativecommons.org/licenses/by/3.0/","CC BY 4.0":"https://creativecommons.org/licenses/by/4.0/","CC BY-SA 2.0":"https://creativecommons.org/licenses/by-sa/2.0/","CC BY-SA 3.0":"https://creativecommons.org/licenses/by-sa/3.0/","CC BY-SA 4.0":"https://creativecommons.org/licenses/by-sa/4.0/"};
+const pad=n=>String(n).padStart(2,"0");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function credit(r){const l=LIC[r.l]?`<a href="${LIC[r.l]}">${esc(r.l)}</a>`:esc(r.l);return `${esc(r.a)} · ${l} · <a href="${r.p}">Commons</a>`}
+function card(id){const r=BY[id];if(!r)return"";return `<div class="card" data-id="${id}" tabindex="0" role="button" aria-label="Open IMG-${pad(id)}"><img loading="lazy" src="img/${pad(id)}.jpg" alt="${esc(r.t)}"><div class="meta"><span class="id">IMG-${pad(id)}</span><span class="why">${esc(r.w)}</span><span class="credit">${credit(r)}</span></div></div>`}
+function lum(h){const n=parseInt(h.slice(1),16);return(0.2126*(n>>16)+0.7152*(n>>8&255)+0.0722*(n&255))/255}
+document.getElementById("directions").outerHTML=DIRS.map(d=>`
+<section class="chapter" aria-labelledby="d-${d.k}">
+  <span class="eyebrow">Art direction ${d.k}</span>
+  <div class="dir-head"><span class="letter">${d.k}</span><h2 id="d-${d.k}">${d.name}</h2><span class="badge${d.hero?" hero-pick":""}">${d.badge}</span></div>
+  <p>${d.tone}</p>
+  <div><div class="palette" style="--cols:${d.w.map(x=>x+"fr").join(" ")}">${d.pal.map(c=>`<div style="background:${c};color:${lum(c)>.55?"#0d2129":"#fff"}">${c}</div>`).join("")}</div>
+  <p class="pal-note" style="margin-top:6px">Palette measured from the references below (median cut, widths ∝ area)</p></div>
+  <dl class="spec">${d.spec.map(([a,b])=>`<div><dt>${a}</dt><dd>${b}</dd></div>`).join("")}</dl>
+  <div class="grid">${d.ids.map(card).join("")}</div>
+</section>`).join("");
+document.querySelectorAll(".grid[data-ids]").forEach(g=>g.innerHTML=g.dataset.ids.split(" ").map(Number).map(card).join(""));
+document.getElementById("credits").innerHTML=Object.values(BY).filter(r=>document.querySelector(`[data-id="${r.id}"]`)).map(r=>`<div>IMG-${pad(r.id)} ${esc(r.t)} — ${credit(r)}</div>`).join("");
+const dlg=document.getElementById("viewer");
+function open(id){const r=BY[id];if(!r)return;document.getElementById("v-img").src=`img/${pad(id)}.jpg`;document.getElementById("v-img").alt=r.t;document.getElementById("v-id").textContent=`IMG-${pad(id)} · ${r.t}`;document.getElementById("v-why").textContent=r.w;document.getElementById("v-credit").innerHTML=credit(r);if(dlg.showModal)dlg.showModal()}
+document.addEventListener("click",e=>{if(e.target.closest("a"))return;const c=e.target.closest("[data-id]");if(c&&!dlg.contains(c))open(+c.dataset.id)});
+document.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches(".card")){e.preventDefault();open(+e.target.dataset.id)}});
+document.getElementById("close").onclick=()=>dlg.close();
+dlg.addEventListener("click",e=>{if(e.target===dlg)dlg.close()});
+</script>

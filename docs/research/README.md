@@ -4,7 +4,7 @@ Living research record for the surfer, board, animation, environment, lighting a
 pipeline. Ocean and wave rendering are out of scope; that is a separate effort evaluating
 [ShoreBreak](https://github.com/cryptomanavan/ShoreBreak).
 
-Started 2026-11-19. Keep this file updated: record every decision and rejected alternative
+Started 2026-11-19. Visual look book: [docs/lookbook](../lookbook/) (published at https://claude.ai/artifact/6L6sGPbk542AppFkRRZrfe). Keep this file updated: record every decision and rejected alternative
 in the decision log below.
 
 ## Documents
