@@ -51,7 +51,14 @@ const FIXED_POSE = (() => {
   const p = v ? v.split(',').map(Number) : null;
   return p && p.length === 2 && p.every(Number.isFinite) ? p : null;
 })();
-const CAM_VIEW = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('cam') || 'chase' : 'chase';
+const QS = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+const CAM_VIEW = QS.get('cam') || 'chase';
+// ?shot=beach|channel|drone[&at=T]: a FIXED spectator camera (no board) placed around the column where
+// the curl impacts at time T, so a clip around T shows the wave build, throw its lip and collapse while
+// the peel runs past. beach: eye level from the sand; channel: a water photographer on the shoulder,
+// looking down the line into the curl; drone: elevated oblique over the line-up.
+const SHOT = QS.get('shot');
+const SHOT_AT = Number.isFinite(parseFloat(QS.get('at'))) ? parseFloat(QS.get('at')) : 24;
 
 export class SurfDemo {
   constructor({ schedule, probe, shared, camera }) {
@@ -63,9 +70,41 @@ export class SurfDemo {
     this.camera = camera;
     this.board = new Board(shared);
     this.knots = [];
-    this.view = CAM_VIEW;           // 'chase' | 'side' | 'aerial'
+    this.view = SHOT ? 'watch' : CAM_VIEW;   // 'chase' | 'side' | 'aerial' | 'watch'
     this.pos = { x: 0, z: 0 };     // focus (the camera's xz) for the swash window (SwashSim._focusX)
+    if (SHOT) this.shot = this._shotSetup(SHOT, SHOT_AT);
     this.reset();
+  }
+
+  /** switch view at run time: 'chase' | 'side' | 'aerial' or a spectator shot 'beach' | 'channel' | 'drone' */
+  setView(v) {
+    if (v === 'beach' || v === 'channel' || v === 'drone') { this.shot = this._shotSetup(v, this.shot?.T ?? SHOT_AT); this.view = 'watch'; }
+    else this.view = v;
+  }
+  get viewKey() { return this.view === 'watch' ? this.shot.kind : this.view; }
+
+  /** fixed spectator camera around the column where the curl impacts at time T */
+  _shotSetup(kind, T) {
+    const e = this.plEvent, dir = Math.sign(e.aR1) || 1;
+    const xw = xAtArrival(e, T, 0, this._guess(T, 0));
+    const w = waveAt(e, xw, T, true);
+    const zA = w.apexZ, zL = w.b.zI;                     // lip apex / landing line at impact
+    const H = this.S.height;
+    let pos, look;
+    if (kind === 'channel') {
+      pos = [xw + 20 * dir, 0.6 + 0.35 * H, zL + 3.5];
+      look = [xw - 2 * dir, 0.45 * H, zA - 0.5];
+    } else if (kind === 'drone') {
+      pos = [xw + 16 * dir, 7 + 3 * H, zL + 20];
+      look = [xw - 6 * dir, 0, zA - 2];
+    } else {   // beach
+      pos = [xw + 9 * dir, 2.4, 4.0];
+      look = [xw - 5 * dir, 0.5 * H, zA];
+    }
+    // world focus (mesh LOD, lip-ribbon slots, particles): between the camera and the break
+    const f = kind === 'drone' ? 0.6 : 0.35;
+    const focus = { x: pos[0] + f * (look[0] - pos[0]), z: pos[2] + f * (look[2] - pos[2]) };
+    return { kind, T, xw, zA, zL, dir, pos, look, focus };
   }
 
   reset() { this.camY = null; this.camPitch = null; this.lastYaw = null; this.tel = null; this.lastT = null; this.prevFwd = this.prevSide = this.prevUp = null; }
@@ -161,6 +200,7 @@ export class SurfDemo {
   }
   /** the camera's (x, z) (= the world focus) at time t, deterministic */
   focusAt(t) {
+    if (this.view === 'watch') { this.pos.x = this.shot.focus.x; this.pos.z = this.shot.focus.z; return this.pos; }
     const [x, z] = this.xz(t), hd = this.heading(t);
     this.pos.x = x - CAM_BACK * hd[0]; this.pos.z = z - CAM_BACK * hd[1];
     return this.pos;
@@ -172,6 +212,8 @@ export class SurfDemo {
     if (this.lastT !== null && (t < this.lastT - 1e-6 || t > this.lastT + 1.0)) this.reset();
     const dt = this.lastT === null ? 0 : t - this.lastT;
     this.lastT = t;
+    if (this.view === 'watch') { this._updateWatch(t); return; }
+    this.board.group.visible = true;
     const [x, z, plan, wave] = this.xz(t);
     const v = this.vel(t);
     const v2 = this.vel(t + 0.05), v1 = this.vel(t - 0.05);
@@ -267,6 +309,20 @@ export class SurfDemo {
       cam: { pos: [+cx.toFixed(2), +camY.toFixed(2), +cz.toFixed(2)], yawDeg: deg(yaw), pitchDeg: deg(this.camPitch), rollDeg: 0, yawRateDeg: deg(yawRate),
         distToBoard: +Math.hypot(cx - x, camY - pos.y, cz - z).toFixed(2), heightAboveBoard: +(camY - pos.y).toFixed(2) },
     };
+  }
+
+  _updateWatch(t) {
+    const s = this.shot, cam = this.camera;
+    this.board.group.visible = false;
+    cam.position.fromArray(s.pos);
+    cam.up.set(0, 1, 0);
+    cam.lookAt(s.look[0], s.look[1], s.look[2]);
+    cam.updateMatrixWorld();
+    // where the curl (impact, tn = 0) is now, relative to the watched column (+: past it)
+    const xImp = xAtArrival(this.event, t, 0, s.xw + (t - s.T) / (this.event.aR1 || 1));
+    const w = waveAt(this.event, s.xw, t);
+    this.tel = { t: +t.toFixed(3), phase: 'watch:' + s.kind, curlPastColumn: +((xImp - s.xw) * s.dir).toFixed(2),
+      columnTn: +w.tn.toFixed(3), columnCrestY: +w.crestY.toFixed(2), cam: { pos: s.pos.map((v) => +v.toFixed(2)), look: s.look.map((v) => +v.toFixed(2)) } };
   }
 
   telemetry() { return this.tel; }

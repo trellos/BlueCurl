@@ -466,7 +466,7 @@ function frame(now) {
   if (qs.has('stats') && !qs.has('nohud')) {
     hud.textContent = `t ${simT.toFixed(2)}s  ${fps.toFixed(0)} fps  ${W}x${H}${paused ? '  [paused]' : ''}`;
     const st = surf?.telemetry();
-    if (st) hud.textContent += `  |  ${st.phase}  ${st.speed.toFixed(1)} m/s  ${st.aheadOfImpact.toFixed(1)} m ahead of the curl  gaps n ${st.gaps.nose.toFixed(2)} t ${st.gaps.tail.toFixed(2)}`;
+    if (st && st.gaps) hud.textContent += `  |  ${st.phase}  ${st.speed.toFixed(1)} m/s  ${st.aheadOfImpact.toFixed(1)} m ahead of the curl  gaps n ${st.gaps.nose.toFixed(2)} t ${st.gaps.tail.toFixed(2)}`;
   }
   if (!CAPTURE) requestAnimationFrame(frame);
 }
