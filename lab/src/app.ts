@@ -73,6 +73,11 @@ export class Lab {
     this.presetId = (q.get('preset') as PresetId) || 'B';
     this.camMode = (q.get('cam') as CamMode) || 'chase';
     this.applyPreset(this.presetId);
+    if (q.has('script'))
+      this.script = q.get('script')!.split(',').map((e) => {
+        const [tt, k] = e.split(':');
+        return [parseFloat(tt), k as ManeuverKind] as [number, ManeuverKind];
+      });
     for (const s of this.systems) await s.init?.(this);
     this.buildGui();
     if (q.has('capture')) document.body.classList.add('capture');
@@ -108,6 +113,7 @@ export class Lab {
   }
 
   reset(): void {
+    this.scriptIdx = 0;
     this.clock.reset();
     this.motion.reset();
     for (const s of this.systems) s.reset?.(this);
@@ -119,7 +125,25 @@ export class Lab {
     for (const s of this.systems) s.onManeuver?.(this, kind, tBoard);
   }
 
+  /** Advance exactly `frames` render frames of 1/60 s (2 ticks each) without real time; for tests. */
+  advanceFrames(frames: number, render = false): void {
+    for (let f = 0; f < frames; f++) {
+      this.prof.begin('sim');
+      this.tick();
+      this.tick();
+      this.prof.end('sim');
+      this.updateFrame(2 * SIM_DT);
+      if (render) this.render();
+    }
+  }
+
+  /** Scripted maneuver commits [time, kind] (URL `script=2:bottomTurn,8:cutback`), replayed on reset. */
+  script: Array<[number, ManeuverKind]> = [];
+  private scriptIdx = 0;
+
   private tick(): void {
+    const t0 = this.clock.time;
+    while (this.scriptIdx < this.script.length && this.script[this.scriptIdx][0] <= t0 + 1e-9) this.commit(this.script[this.scriptIdx++][1]);
     this.clock.onTick();
     const t = this.clock.time;
     this.motion.tick(t);
@@ -142,7 +166,7 @@ export class Lab {
   }
 
   /** Per-frame (render-rate) update after the fixed ticks. simDt = sim time advanced this frame. */
-  private updateFrame(simDt: number): void {
+  updateFrame(simDt: number): void {
     const S = this.motion.state;
     this.boardRoot.position.copy(S.position);
     this.boardRoot.quaternion.copy(S.quaternion);

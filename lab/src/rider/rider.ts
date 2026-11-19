@@ -110,6 +110,8 @@ export class Rider {
   readonly fPlanLeadB = new THREE.Vector3(0, G, 0);
   readonly fDistB = new THREE.Vector3();
   readonly bodyUp = new THREE.Vector3(0, 1, 0);
+  /** Body axis spring state in the WORLD frame (inertia lives in the world, not on the board). */
+  private bodyUpW = new THREE.Vector3(0, 1, 0);
   readonly comX = new MassSpring(); // lateral (board X)
   readonly comZ = new MassSpring(); // fore/aft (board Z)
   readonly crouch = new AsymSpring(0.05, 0.22, 0.42, 0.42);
@@ -123,6 +125,8 @@ export class Rider {
   private stabTarget = 0.85;
   private perfTarget = 0.5;
   balanceError = 0;
+  eCom = 0;
+  eTilt = 0;
   private distDelay: Float32Array = new Float32Array(64 * 3);
   private distHead = 0;
   private noiseX = makePinkNoise(11);
@@ -194,6 +198,7 @@ export class Rider {
     this.lead.reset(0);
     this.twist.reset(0);
     this.bodyUp.set(0, 1, 0);
+    this.bodyUpW.set(NaN, 0, 0);
     this.impulses.length = 0;
     this.step = null;
     this.fallen = 0;
@@ -276,19 +281,34 @@ export class Rider {
     const aS = _v3.crossVectors(S.alpha, r).add(_fw.crossVectors(S.omega, wxr)).add(S.accel);
     aS.y += G;
     this.fB.copy(aS).applyQuaternion(_qInv);
-    // planned specific force: now (for the split) and ahead (anticipation lead, grows with skill)
+    // disturbance = what the plan did not command: the perturbation layer's translational
+    // accelerations (heave, surge, impulses). The plan's own rotation acting on the stance
+    // offset is planned, so it is not a disturbance.
     const lead = P.leadTime * (0.7 + 0.6 * perf);
-    motion.plannedForceAhead(0, _v).applyQuaternion(_qInv);
-    this.fDistB.subVectors(this.fB, _v);
+    this.fDistB.subVectors(S.accel, S.accelPlan).applyQuaternion(_qInv);
     motion.plannedForceAhead(lead, this.fPlanLeadB).applyQuaternion(_qInv);
 
     // body axis: apparent up read ahead, blended with the deck normal
-    _v.copy(this.fPlanLeadB).normalize().multiplyScalar(P.balance ? P.kappa : 0).addScaledVector(UP, P.balance ? 1 - P.kappa : 1).normalize();
+    // (near weightlessness the direction of f is meaningless, so it gets less weight; and the
+    // body axis never tilts more than ~55° from the deck normal)
+    const fMag = this.fPlanLeadB.length();
+    const k = P.balance ? P.kappa * smoothstep(0.25 * G, 0.75 * G, fMag) : 0;
+    _v.copy(this.fPlanLeadB).normalize().multiplyScalar(k).addScaledVector(UP, 1 - k).normalize();
+    // spring in the world frame, then back to the board frame
+    _v.applyQuaternion(S.quaternion);
+    if (Number.isNaN(this.bodyUpW.x)) this.bodyUpW.copy(_v);
     const hU = 0.07;
-    this.bodyUp.x = damp(this.bodyUp.x, _v.x, hU, dt);
-    this.bodyUp.y = damp(this.bodyUp.y, _v.y, hU, dt);
-    this.bodyUp.z = damp(this.bodyUp.z, _v.z, hU, dt);
-    this.bodyUp.normalize();
+    this.bodyUpW.x = damp(this.bodyUpW.x, _v.x, hU, dt);
+    this.bodyUpW.y = damp(this.bodyUpW.y, _v.y, hU, dt);
+    this.bodyUpW.z = damp(this.bodyUpW.z, _v.z, hU, dt);
+    this.bodyUpW.normalize();
+    this.bodyUp.copy(this.bodyUpW).applyQuaternion(_qInv);
+    // never more than ~55° from the deck normal
+    const maxTilt = 55 * DEG;
+    if (this.bodyUp.y < Math.cos(maxTilt)) {
+      const h = Math.hypot(this.bodyUp.x, this.bodyUp.z);
+      this.bodyUp.set((this.bodyUp.x / h) * Math.sin(maxTilt), Math.cos(maxTilt), (this.bodyUp.z / h) * Math.sin(maxTilt));
+    }
 
     // disturbance → COM (with reaction latency that grows as stability drops)
     const latency = 0.08 + 0.14 * (1 - stab);
@@ -350,9 +370,13 @@ export class Rider {
     this.gaze.lerp(_v, 1 - Math.exp(-dt / 0.12)).normalize();
 
     // balance error: COM excursion vs support, and body axis vs actual apparent up
-    const tiltErr = this.bodyUp.angleTo(_v.copy(this.fB).normalize());
+    // only the UNPLANNED part counts: the body leading a planned turn is skill, not imbalance.
+    // (A vector magnitude, not an angle: near weightlessness the direction of f is undefined.)
+    const unplanned = this.fDistB.length();
     const eCom = Math.hypot(this.comX.x / 0.14, this.comZ.x / 0.22);
-    this.balanceError = Math.max(eCom, tiltErr / (30 * DEG));
+    this.eCom = eCom;
+    this.eTilt = unplanned / (0.65 * G);
+    this.balanceError = Math.max(eCom, this.eTilt);
     const e = this.balanceError;
     this.armsOut.step(Math.min(1, smoothstep(0.25, 0.6, e) + 0.45 * (1 - stab)), dt);
     this.armsHigh.step(smoothstep(0.55, 0.85, e), dt);

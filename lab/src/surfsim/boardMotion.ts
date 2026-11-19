@@ -37,6 +37,7 @@ interface PlanState {
   phase: number;
   phaseStart: number;
   thetaRef: number;
+  w: number; // turn rate (rad/s), slew-limited so lateral acceleration rolls in and out
 }
 
 export interface BoardState {
@@ -144,7 +145,7 @@ export class BoardMotion {
   }
 
   private blank(): PlanState {
-    return { t: 0, x: 0, z: 0, theta: 0, v: 0, man: 'trim', manStart: 0, phase: 0, phaseStart: 0, thetaRef: 0 };
+    return { t: 0, x: 0, z: 0, theta: 0, v: 0, man: 'trim', manStart: 0, phase: 0, phaseStart: 0, thetaRef: 0, w: 0 };
   }
 
   reset(): void {
@@ -157,6 +158,14 @@ export class BoardMotion {
     this.nowTick = 0;
     this.pending = null;
     for (const s of [this.pPitch, this.pRoll, this.pYaw, this.pHeave, this.surge]) s.reset();
+    // backfill the past (straight-line extrapolation) so differences at t = 0 are clean
+    for (let k = 1; k <= 16; k++) {
+      const sp = this.at(-k);
+      Object.assign(sp, s0);
+      sp.t = -k * SIM_DT;
+      sp.x = s0.x - s0.v * k * SIM_DT;
+    }
+    this.lastHeaveV = this.lastSurgeV = this.heaveAcc = this.surgeAcc = 0;
     while (this.headTick < AHEAD_TICKS + 2) this.integrateHead();
     this.prevQ.identity();
     this.evaluate(0, true);
@@ -203,61 +212,64 @@ export class BoardMotion {
   }
 
   /** Heading program: target heading and turn-radius limit for a plan state. */
-  private steer(s: PlanState, Wf: number): { target: number; rMin: number; thrust: number } {
+  private steer(s: PlanState, Wf: number): { target: number; gMax: number; thrust: number } {
     const P = this.params;
     const u = s.z / Wf; // 0 crest .. 1 toe
     const trimTarget = Math.max(-25 * DEG, Math.min(25 * DEG, 0.35 * (P.trimLine - u) * Wf));
     const tau = s.t - s.manStart;
     const tp = s.t - s.phaseStart;
+    // guards: never ride over the crest or far out onto the flats (a rider would turn first)
+    if (u < 0.24 && s.theta < 0 && !(s.man === 'topTurn' && s.phase === 0)) return { target: 35 * DEG, gMax: 1.7, thrust: 0 };
+    if (u > 1.25 && s.theta > -5 * DEG) return { target: -35 * DEG, gMax: 1.4, thrust: 0 };
     switch (s.man) {
       case 'pump': {
         const T = 1.15;
         const ph = Math.sin((2 * Math.PI * tau) / T);
         if (tau > 3 * T) this.endManeuver(s);
-        return { target: trimTarget + 17 * DEG * ph, rMin: 3, thrust: ph > 0 ? 2.2 * ph : 0.4 * ph };
+        return { target: trimTarget + 17 * DEG * ph, gMax: 0.9, thrust: ph > 0 ? 2.2 * ph : 0.4 * ph };
       }
       case 'bottomTurn': {
         if (s.phase === 0) {
           if (u > 1.0 || tp > 2.4) this.nextPhase(s);
-          return { target: 52 * DEG, rMin: 6, thrust: 0 };
+          return { target: 42 * DEG, gMax: 0.35, thrust: 0 };
         }
         if (s.phase === 1) {
-          if (u < 0.32 || tp > 2.2) this.nextPhase(s);
-          return { target: -58 * DEG, rMin: 4.2, thrust: 0 };
+          if (u < 0.62 || tp > 2.0) this.nextPhase(s);
+          return { target: -55 * DEG, gMax: 1.6, thrust: 0 };
         }
-        if (tp > 0.8) this.endManeuver(s);
-        return { target: trimTarget, rMin: 5, thrust: 0 };
+        if (tp > 1.0) this.endManeuver(s);
+        return { target: 8 * DEG, gMax: 1.3, thrust: 0 };
       }
       case 'topTurn': {
         if (s.phase === 0) {
-          if (u < 0.16 || tp > 2.0) this.nextPhase(s);
-          return { target: -48 * DEG, rMin: 4, thrust: 0 };
+          if (u < 0.26 || tp > 2.0) this.nextPhase(s);
+          return { target: -45 * DEG, gMax: 0.8, thrust: 0 };
         }
         if (s.phase === 1) {
           if (s.theta > 40 * DEG || tp > 1.2) this.nextPhase(s);
-          return { target: 62 * DEG, rMin: 1.7, thrust: 0 };
+          return { target: 60 * DEG, gMax: 2.0, thrust: 0 };
         }
         if (tp > 0.9) this.endManeuver(s);
-        return { target: trimTarget, rMin: 4, thrust: 0 };
+        return { target: trimTarget, gMax: 0.7, thrust: 0 };
       }
       case 'cutback': {
         if (s.phase === 0) {
           if (u < 0.3 || tp > 1.8) this.nextPhase(s);
-          return { target: -28 * DEG, rMin: 5, thrust: 0 };
+          return { target: -28 * DEG, gMax: 0.6, thrust: 0 };
         }
         if (s.phase === 1) {
           if (s.theta > 160 * DEG || tp > 2.5) this.nextPhase(s);
-          return { target: 172 * DEG, rMin: 3.6, thrust: 0.5 };
+          return { target: 172 * DEG, gMax: 1.4, thrust: 0.5 };
         }
         if (s.phase === 2) {
           if (s.theta < 15 * DEG || tp > 2.8) this.nextPhase(s);
-          return { target: 5 * DEG, rMin: 3.2, thrust: 0.3 };
+          return { target: 5 * DEG, gMax: 1.3, thrust: 0.3 };
         }
         if (tp > 0.6) this.endManeuver(s);
-        return { target: trimTarget, rMin: 4, thrust: 0 };
+        return { target: trimTarget, gMax: 0.7, thrust: 0 };
       }
       default:
-        return { target: trimTarget, rMin: 6, thrust: 0 };
+        return { target: trimTarget, gMax: 0.5, thrust: 0 };
     }
   }
 
@@ -292,11 +304,14 @@ export class BoardMotion {
     const P = this.params;
     const Wf = this.wave.faceWidth;
     const st = this.steer(s1, Wf);
-    // first-order heading response, turn rate limited by the minimum radius at this speed
-    const wMax = s1.v / st.rMin;
-    let w = (st.target - s1.theta) / 0.16;
-    w = Math.max(-wMax, Math.min(wMax, w));
-    s1.theta += w * dt;
+    // heading control: desired turn rate limited by the lateral-g budget (a = v·w), and the turn
+    // rate itself slew-limited (angular acceleration) so rail engagement rolls in and out
+    const wMax = (st.gMax * G) / Math.max(3, s1.v);
+    let wDes = (st.target - s1.theta) / 0.3;
+    wDes = Math.max(-wMax, Math.min(wMax, wDes));
+    const aMax = 7; // rad/s^2
+    s1.w += Math.max(-aMax * dt, Math.min(aMax * dt, wDes - s1.w));
+    s1.theta += s1.w * dt;
     // speed: gravity along the path on the face, relax to trim speed, thrust
     const dx = Math.cos(s1.theta);
     const dz = Math.sin(s1.theta);
@@ -339,12 +354,15 @@ export class BoardMotion {
     this.wave.profileNormal(s.x, s.z, _nArr);
     _n.set(_nArr[0], _nArr[1], _nArr[2]);
     _f.copy(aPlan).y += G; // specific force direction (apparent up)
+    const fMag = _f.length();
     _f.normalize();
     // lateral acceleration magnitude decides how much the board goes on rail
     _side.crossVectors(_n, _fwd).normalize();
     const aLat = Math.abs(aPlan.dot(_side));
     const k01 = Math.min(1, aLat / 6);
-    const w = this.params.railFollow * (0.25 + 0.75 * k01);
+    // near weightlessness (cresting) the apparent-up direction is meaningless: follow the face
+    const wf = Math.min(1, Math.max(0, (fMag - 0.25 * G) / (0.5 * G)));
+    const w = this.params.railFollow * (0.25 + 0.75 * k01) * wf * wf * (3 - 2 * wf);
     _up.copy(_n).multiplyScalar(1 - w).addScaledVector(_f, w).normalize();
     // small planing angle of attack: nose up ~2.5°
     _side.crossVectors(_up, _fwd).normalize(); // +X (left rail) = up × forward
@@ -454,9 +472,12 @@ export class BoardMotion {
       }
       const sinHalf = Math.hypot(_q2.x, _q2.y, _q2.z);
       const ang = 2 * Math.atan2(sinHalf, _q2.w);
-      if (sinHalf > 1e-9) S.omega.set(_q2.x, _q2.y, _q2.z).multiplyScalar(ang / sinHalf / SIM_DT);
-      else S.omega.set(0, 0, 0);
-      S.alpha.subVectors(S.omega, this.prevOmega).multiplyScalar(1 / SIM_DT);
+      if (sinHalf > 1e-9) _v.set(_q2.x, _q2.y, _q2.z).multiplyScalar(ang / sinHalf / SIM_DT);
+      else _v.set(0, 0, 0);
+      // light smoothing: one-tick differences of orientation are noisy, and alpha doubly so
+      S.omega.lerp(_v, 0.5);
+      _p0.subVectors(S.omega, this.prevOmega).multiplyScalar(1 / SIM_DT);
+      S.alpha.lerp(_p0, 0.15);
       this.prevQ.copy(S.quaternion);
     }
     this.prevOmega.copy(S.omega);
