@@ -38,7 +38,8 @@ for i, m in enumerate(meta):
     d.rounded_rectangle((24, 22, 24 + 470, 22 + 84), 8, fill=(0, 0, 0, 110))
     d.text((40, 30), label, font=big, fill=(255, 255, 255, 235))
     d.text((40, 72), sub, font=small, fill=(230, 230, 230, 220))
-    d.text((im.width - 330, im.height - 34), "BlueCurl Surf Lab v0 — placeholder assets", font=small, fill=(255, 255, 255, 150))
+    wm = "BlueCurl Surf Lab v0 — placeholder assets"
+    d.text((im.width - 24 - d.textlength(wm, font=small), im.height - 34), wm, font=small, fill=(255, 255, 255, 150))
     im.save(os.path.join(cap_dir, f"c{i:05d}.png"))
 subprocess.run(
     ["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps), "-i", os.path.join(cap_dir, "c%05d.png"),
