@@ -15,7 +15,12 @@ const logs = [];
 page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
 await page.goto(`http://127.0.0.1:5199/?${query}`);
-await page.waitForFunction(() => window.__lab?.ready === true, null, { timeout: 120000 });
+try {
+  await page.waitForFunction(() => window.__lab?.ready === true, null, { timeout: 60000 });
+} catch (e) {
+  console.log(logs.join('\n'));
+  throw e;
+}
 if (extra) console.log('eval:', JSON.stringify(await page.evaluate(extra)));
 await page.waitForTimeout(300);
 const url = await page.evaluate(() => window.__lab.screenshot(1));
