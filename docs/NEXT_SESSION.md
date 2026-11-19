@@ -5,6 +5,12 @@ You're building the first runnable piece of BlueCurl: a browser-based "Surf Lab"
 - Visual target: realistic sports cinematography, seen from a continuous rear chase camera. Not stylised, not gamey. Believability is the only criterion.
 - Ocean and wave rendering belong to a separate effort, the ShoreBreak wave renderer (https://github.com/cryptomanavan/ShoreBreak: three r186, WebGL2, metres, y-up). Don't depend on it. Use a simple analytic stand-in wave face, which real wave queries replace later. Everything else (surfer, board, board motion, animation, camera, lighting) is ours.
 
+## Repo layout and the parallel wave work
+- This repo is shared with the wave-renderer effort. Branch `shorebreak-original` holds ShoreBreak. Branch `claude/trusting-pascal-l7a99k` holds the wave session's work: a peeling-wave surf demo in `src/surf/` with `Board.js`, a planned board trajectory over the wave, a GPU water-height probe and a chase camera. **Read those files for ideas, don't modify that branch.**
+- Its board convention differs from ours: +x nose, +z right rail, origin on the bottom. Ours is glTF-style: +Z nose, +Y deck normal, +X left rail. Provide a small conversion so the two can be merged later.
+- **Put all lab code under `lab/`** with its own `package.json`. ShoreBreak owns the root `package.json` and `src/`, so a root-level app would collide at merge time.
+- Base your branch on `claude/wonderful-knuth-7dtpcs`, which has the research docs.
+
 ## Owner decisions (don't re-litigate)
 - **Instant reaction:** every input from the 500 ms stream must show on the next frame, including the start of a maneuver. No playout buffer or input delay. Smoothness comes from springs with asymmetric attack (1–3 frames) and slower release. Anticipation comes from the body leading: head, shoulders and compression start immediately and the board follows about 0.2 s later.
 - **No motion capture.** Use existing animations as placeholders, an authored key-pose library, and the procedural board-frame layer.
