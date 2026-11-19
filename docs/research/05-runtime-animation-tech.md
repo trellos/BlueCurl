@@ -186,6 +186,14 @@ was over-cautious. **Anticipation does not need future *input*.** The surfer's f
 path comes from our own planner and board sim, so we can simulate it ahead. Only the
 *response to new input* is causal.
 
+- **React on the next frame, even when a reaction is the start of something** (owner
+  requirement). A new sample visibly changes the pose within one frame:
+  - stumbles get an arm flick and knee dip;
+  - a maneuver starts its initiation (head, shoulders, compression) immediately.
+
+  Use asymmetric springs (attack of 1–3 frames, slower release) and short additive "onset"
+  poses. This matches real biomechanics: head and shoulders lead and the board follows about
+  0.2 s later. So the instant body onset *is* the anticipation, with no input delay.
 - **Apply each sample immediately.** A new sample retargets the parameter springs: stability,
   performance, intensity. Impulse events fire at once.
 - The springs are what make the motion continuous, so no buffering is needed for smoothness.

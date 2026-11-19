@@ -119,6 +119,9 @@ directly before buying anything.
 | 2026-11-19 | **Board motion through the world (the surfing sim) is ours.** Wave state comes from the wave renderer through a query interface. Where docs 05/10 say "other team" or "water team", read it as "the wave renderer module". | Adopted | Brief: everything except ocean and wave rendering is ours |
 | 2026-11-19 | Custom pose pipeline; `AnimationMixer` not used for the surfer | Proposed | 05 §1 |
 | 2026-11-19 | **No added input latency.** Samples apply immediately; springs give continuity (~100–250 ms visible response); anticipation comes from simulating our own planned board path 0.2–0.4 s ahead. The 1 s playout buffer was rejected by the owner. | Adopted | 05 §8.1 |
+| 2026-11-19 | **Instant onset:** every input shows on the next frame, including the start of a maneuver (head, shoulders, compression lead; board follows). | Adopted (owner) | 05 §8.1 |
+| 2026-11-19 | **No motion-capture shoot for now.** Use existing animations (Mixamo, ActorCore, marketplace surf packs) as a base, plus an authored key-pose library (Blender/Cascadeur) driven by the procedural board-frame layer. Video-to-motion stays an optional reference tool. Capture is reconsidered only if this fails the believability gate. | Adopted (owner) | 04, 11 |
+| 2026-11-19 | **Character: start with an existing downloadable rigged realistic human** for development (licence for internal use is enough now); revisit licence and quality before any public release. | Adopted (owner) | 02 |
 | 2026-11-19 | Wipeout physics: Jolt (`jolt-physics`, MIT); Rapier as fallback; cannon-es and ammo.js rejected | Proposed | 05 §5 |
 | 2026-11-19 | Procedural `boardkit` (clean-room); don't port BoardCAD (GPL) | Proposed | 03 §8 |
 | 2026-11-19 | Character milestone 1: MetaHuman vs CC5 bake-off; open-topology "BlueCurl body" for production | Proposed; needs X0 answers | 02 §7 |
