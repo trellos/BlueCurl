@@ -95,11 +95,11 @@ export class SurfDemo {
       pos = [xw + 20 * dir, 0.6 + 0.35 * H, zL + 3.5];
       look = [xw - 2 * dir, 0.45 * H, zA - 0.5];
     } else if (kind === 'drone') {
-      pos = [xw + 16 * dir, 7 + 3 * H, zL + 20];
-      look = [xw - 6 * dir, 0, zA - 2];
+      pos = [xw + 11 * dir, 4 + 2.5 * H, zL + 12];
+      look = [xw - 5 * dir, 0, zA - 1];
     } else {   // beach
-      pos = [xw + 9 * dir, 2.4, 4.0];
-      look = [xw - 5 * dir, 0.5 * H, zA];
+      pos = [xw + 6 * dir, 2.1, 2.0];
+      look = [xw - 4 * dir, 0.5 * H, zA];
     }
     // world focus (mesh LOD, lip-ribbon slots, particles): between the camera and the break
     const f = kind === 'drone' ? 0.6 : 0.35;
