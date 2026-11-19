@@ -6,7 +6,7 @@
 //
 // --seq renders a deterministic frame sequence through window.__advance (fixed sim steps), so
 // the result is a real-time-equivalent recording regardless of how slowly the machine renders.
-import { createServer } from 'vite';
+import { createServer, build, preview } from 'vite';
 import { chromium } from 'playwright-core';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,16 +18,25 @@ const opt = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i
 const W = parseInt(opt('w', '960'), 10), H = parseInt(opt('h', '540'), 10);
 const out = path.resolve(opt('out', 'captures/spike'));
 const extra = opt('params', '');
-const TIMEOUT = parseFloat(opt('timeout', '1800')) * 1000;
+const TIMEOUT = parseFloat(opt('timeout', '3600')) * 1000;
 fs.mkdirSync(out, { recursive: true });
 const chromePath = process.env.CHROME_PATH
   || ['/opt/pw-browsers/chromium-1243/chrome-linux64/chrome', '/usr/bin/chromium', '/usr/bin/google-chrome']
     .find((p) => fs.existsSync(p));
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const server = await createServer({ root, logLevel: 'error', server: { port: 0, strictPort: false } });
-await server.listen();
-const port = server.httpServer.address().port;
+// --root DIR: capture another checkout (e.g. a worktree of the original branch);
+// --dist: build it and serve the static build (no dev-server hot reload while sources are edited)
+const root = path.resolve(opt('root', path.join(path.dirname(fileURLToPath(import.meta.url)), '..')));
+let server, port;
+if (args.includes('--dist')) {
+  await build({ root, logLevel: 'error', build: { outDir: path.join(root, 'dist'), emptyOutDir: true } });
+  server = await preview({ root, logLevel: 'error', preview: { port: 0, strictPort: false } });
+  port = server.httpServer.address().port;
+} else {
+  server = await createServer({ root, logLevel: 'error', server: { port: 0, strictPort: false, hmr: false, watch: null } });
+  await server.listen();
+  port = server.httpServer.address().port;
+}
 const browser = await chromium.launch({ executablePath: chromePath, headless: true,
   args: ['--headless=new', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
@@ -114,4 +123,4 @@ if (args.includes('--bench')) {
 fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 1));
 fs.writeFileSync(path.join(out, 'console.log'), logs.join('\n'));
 await browser.close();
-await server.close();
+await (server.close ? server.close() : server.httpServer.close());
