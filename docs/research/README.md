@@ -197,6 +197,92 @@ Re-capturing or re-authoring later costs more than avoiding them now.
 | Tencent Hunyuan3D, HunyuanWorld, HY-Motion, Hunyuan Video | **Territory**: not licensed in the EU, UK or South Korea | Avoid if users or the team may be there |
 | Revenue thresholds | MetaHuman/UE free under $1M/yr; Stability models under $1M; LTX-2 under $10M; Cascadeur Indie under $100k | Fine for now; revisit if commercial |
 
+## Lab log
+
+The Surf Lab lives in [`lab/`](../../lab/README.md), with its own `package.json`. Screenshots and
+metrics are in [`docs/lab/`](../lab/).
+
+**2026-11-19: steps 1–6 of the build plan, v0.**
+
+**Decisions:**
+- **Placement and stack.** Everything is under `lab/`. Vite 8 + TypeScript + `three@0.186.0`
+  (pinned) + lil-gui. There are no other runtime dependencies.
+- **Clock.** The simulation runs at a fixed 120 Hz and renders the latest tick. `seek=` re-simulates
+  deterministically, so screenshots, metrics and reviews reproduce.
+- **Chase camera.** The spec is as given: 5 m back, 2 m up, 45° vertical FOV, 0.4 s yaw lag, 20% roll
+  pass-through. Aim is 1.0 m above the deck and 0.6 m ahead.
+- **Lighting.**
+  - The only Poly Haven golden-hour HDRI reachable here (*Blouberg Sunrise 2*, CC0, via the
+    three.js examples) is shot on land, with buildings on the horizon. It lights the surfer and
+    board only. The sky and the sea reflection come from a procedural Preetham sky that uses the
+    sun direction measured from the HDRI.
+  - Preset D uses a CIE overcast sky computed in code. Studio uses `RoomEnvironment`.
+  - One sun with a 2048 PCF shadow map in a ±1.6 m box that follows the subject. AgX tone mapping.
+- **boardkit.**
+  - The outline, rocker and foil are monotone Hermite curves. Cross-sections are superellipses
+    (deck/rail exponent, bottom/edge exponent and apex ratio).
+  - Volume is solved to the published 28.5 L by one fullness scalar (1.03 for the 6'0").
+  - Normals are analytic. Anchors follow 03 §6 (`ANC_*`), plus `deckFrame(z, x)`.
+  - The ShoreBreak conversion is `Ry(−90°)` plus the widest-point origin offset (`boardkit/shorebreak.ts`).
+- **Character.** Microsoft Rocketbox *Male_Adult_01* (MIT), the only male in shorts, converted
+  FBX → GLB with headless Blender (`pip install bpy`).
+  - Licence: in `lab/ASSETS.md`.
+  - It has no twist bones, and the clothing is fused to the body (polo shirt, shorts, sneakers).
+    It is a development placeholder only.
+- **Pose pipeline.**
+  - `Float32Array` local poses, our own FK, and bones written in exactly one place. No `AnimationMixer`.
+  - Key poses are authored in **character space**, so they are independent of the Biped bone axes,
+    and mirrored for goofy.
+  - Analytic two-bone IK for the legs, with knee-plane control and foot-to-deck alignment.
+- **Balance.** `f_B` is computed at the stance point.
+  - The body axis follows the planned apparent-up, read 0.15–0.3 s ahead. Its spring state lives in
+    the **world** frame; in the board frame it rotated rigidly with fast board rolls.
+  - The axis is clamped to 55° from the deck. Where |f| is small (cresting), apparent-up gets less
+    weight.
+  - Only the perturbation layer's tangential acceleration counts as a disturbance. The plan's own
+    rotation at the stance offset is planned, and heave is absorbed by the knees.
+- **Board motion.**
+  - The planner integrates the path 0.6 s ahead. A maneuver commit re-integrates the future from
+    `now + 0.2 s`, so the body starts on the next frame and the board follows 0.2 s later.
+  - Turn rate is slew-limited (7 rad/s²) under a lateral-g budget (0.35–2 g). Guards keep the
+    board off the crest and the flats.
+- **Clips.** No free paddle or pop-up clip was found (none in Rocketbox MIT; Mixamo needs a login).
+  The paddle cycle and pop-up are authored procedurally in the board frame. Phase switches use a
+  dead blend (half-life 60 ms).
+
+**Measured** (`window.__lab.metrics`, [metrics_v0.json](../lab/metrics_v0.json), headless Chromium/SwiftShader):
+
+| Check | Target | Result |
+|---|---|---|
+| Foot contact error (three.js bone matrices vs anchors), all scenarios | < 2 mm | **max 0.002 mm** (steps and phase blends excluded) |
+| Rider CPU per frame (synth + IK + head + bone write) | < 0.5 ms | **mean 0.02–0.03 ms**, p95 0.1 ms (browser timer resolution is 0.1 ms) |
+| Bottom-turn lean vs `atan(v²/rg)` | match | Peak −56° vs −58° theory. Over full maneuver runs the RMS gap is 12–17° because the body deliberately leads by 0.1–0.13 s |
+| Body leads board roll | lead | **+83 to +133 ms** (cross-correlation) |
+| Clean riding at stability 0.85 (24 s, 4 maneuvers; 30 s cruise; 40 s escalating) | no stumbles | 0 steps, 0 falls |
+| Struggling stream (30 s) | graded recovery | arms out, 10 stumble steps, 3 falls |
+| Heavy chop 0.12 m at stability 0.85 | absorbed | 0 steps, 0 falls |
+
+**Known issues (honest):**
+- Rocketbox deformation:
+  - In the deep crouch the back knee nearly touches the deck. The knee and shorts fold acceptably.
+  - In the 45° twist the shoulder and armpit pinch where the arm is raised.
+  - There are no twist bones (see [pose_tests_v0.jpg](../lab/pose_tests_v0.jpg) and
+    [deformation_closeups_v0.jpg](../lab/deformation_closeups_v0.jpg)).
+  - Sneakers and a polo shirt are wrong for a surfer.
+  - The hair cards read as layered patches from behind.
+- **Lean overshoot near the crest.** In crest-guard top turns the body (55° clamp) plus a 60° board
+  roll reach about 85–88° from vertical for a few frames.
+- **Pop-up.** The tuck-to-landing blend makes the legs float sideways for about 0.1 s.
+- **Sea.** The analytic stand-in is smooth, so the procedural sky's horizon gradient reflects as a
+  colour band along the face. That belongs to the wave renderer, not to us.
+- **Fall.** The fall is a kinematic topple (placeholder); the Jolt ragdoll comes later.
+
+**Rejected while building:**
+- **Balance error from the angle of f.** It is undefined near weightlessness and caused false falls.
+- **Counting the plan's rotational stance acceleration as a disturbance.** It caused constant stumbles.
+- **Whole-body pitch for the pop-up push.** It drove the legs through the board, because in the
+  Biped skeleton the thighs hang off `Spine`, not `Pelvis`.
+
 ## Open questions for the project owner
 
 1. What exactly is in the stream? Doc 05 assumes impulse events, accumulated performance and
