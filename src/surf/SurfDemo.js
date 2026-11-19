@@ -106,27 +106,46 @@ export class SurfDemo {
   }
 
   /** board origin (x, z) on the wave at t (the analytic plan, no probe) */
-  xz(t) {
-    const p = this.plan(t);
-    const x = xAtArrival(this.plEvent, t, p.a, this._guess(t));
+  xz(t) { const p = this.plan(t); return this.xzAt(t, p.a, p.h, p); }
+  /** world (x, z) of wave position (alpha, h) at time t */
+  xzAt(t, a, h, p = null) {
+    const x = xAtArrival(this.plEvent, t, a, this._guess(t, a));
     const w = waveAt(this.plEvent, x, t, true);
-    return [x, w.faceZ(p.h), p, w];
+    return [x, w.faceZ(h), p, w];
   }
-  _guess(t) {
-    // linear peel: x ~ (t - t0 + ...) * speed; refined by Newton in xAtArrival
+  _guess(t, a = -0.9) {
+    // linear peel: x ~ (t - t0 - alpha rs) * speed; refined by Newton in xAtArrival
     const k = this.event.aR1;
-    return (t - this.event.t0 + 0.9 * Math.sqrt(this.event.H / 0.45)) / k;
+    return (t - this.event.t0 - a * Math.sqrt(this.event.H / 0.45)) / k;
   }
-  vel(t, h = 0.02) {
+  /** world velocity of the planned path */
+  velWorld(t, h = 0.02) {
     const a = this.xz(t - h), b = this.xz(t + h);
     return [(b[0] - a[0]) / (2 * h), (b[1] - a[1]) / (2 * h)];
+  }
+  /** Velocity relative to the travelling wave: the world velocity minus the wave's propagation
+   *  velocity normal to its crest. The peeling pattern moves along the coast at the peel speed and the
+   *  crest is oblique to the coast (here ~40 deg: a realistic peel angle), so a rider holding station by
+   *  the curl moves through the water ALONG the crest. The board points along this velocity (and the
+   *  chase camera follows it); along the world velocity it would cross the face diagonally, nose down. */
+  vel(t, h = 0.02) {
+    const p = this.plan(t);
+    const vw = this.velWorld(t, h);
+    const P0 = this.xzAt(t - h, p.a, p.h), P1 = this.xzAt(t + h, p.a, p.h);
+    const u = [(P1[0] - P0[0]) / (2 * h), (P1[1] - P0[1]) / (2 * h)];       // pattern velocity here
+    const A0 = this.xzAt(t, p.a - 0.02, p.h), A1 = this.xzAt(t, p.a + 0.02, p.h);
+    let tx = A1[0] - A0[0], tz = A1[1] - A0[1];                               // crest-parallel direction
+    const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
+    let nx = -tz, nz = tx; if (nz < 0) { nx = -nx; nz = -nz; }                // crest normal (shoreward)
+    const c = u[0] * nx + u[1] * nz;                                          // propagation speed
+    return [vw[0] - c * nx, vw[1] - c * nz, c];
   }
   /** smoothed direction of travel (exponentially weighted over the last ~1 s) */
   heading(t) {
     let sx = 0, sz = 0;
-    for (let i = 0; i < 16; i++) {
-      const w = Math.exp(-i * 0.1 / 0.6);
-      const v = this.vel(t - i * 0.1);
+    for (let i = 0; i < 11; i++) {
+      const w = Math.exp(-i * 0.15 / 0.8);
+      const v = this.vel(t - i * 0.15);
       const l = Math.hypot(v[0], v[1]) || 1;
       sx += (w * v[0]) / l; sz += (w * v[1]) / l;
     }
@@ -233,7 +252,7 @@ export class SurfDemo {
     this.tel = {
       t: +t.toFixed(3), phase: plan.phase, alpha: +plan.a.toFixed(3), h: +plan.h.toFixed(3), tn: +wave.tn.toFixed(3),
       aheadOfImpact: +((x - xImp) * Math.sign(this.event.aR1)).toFixed(2),
-      board: [+x.toFixed(3), +pos.y.toFixed(3), +z.toFixed(3)], speed: +speed.toFixed(2),
+      board: [+x.toFixed(3), +pos.y.toFixed(3), +z.toFixed(3)], speed: +speed.toFixed(2), worldSpeed: +Math.hypot(...this.velWorld(t)).toFixed(2), waveSpeed: +v[2].toFixed(2),
       headingDeg: deg(Math.atan2(f.z, f.x)), pitchDeg: deg(Math.asin(clamp(fwd.y, -1, 1))), rollDeg: deg(Math.asin(clamp(-side.y, -1, 1))), bankDeg: deg(bank),
       face: { crest: +wave.crestY.toFixed(2), trough: +wave.troughY.toFixed(2), apexZ: +wave.apexZ.toFixed(2) },
       water: { c: +hC.toFixed(3), n: +hN.toFixed(3), t: +hT.toFixed(3), l: +hL.toFixed(3), r: +hR.toFixed(3) },
