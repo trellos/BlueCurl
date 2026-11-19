@@ -10,8 +10,18 @@ These hold whichever proposal we pick. They come from studying real surf cinemat
 from the camera constraint: a continuous rear chase.
 
 1. **The camera behaves like a real, physically present operator.** Think of a stabilised
-   water-housing or jet-ski follow-cam: about 4 m behind the surfer, lens about 1.2–1.8 m above
-   the water, 28–40 mm full-frame look, a level horizon and slight lag through turns.
+   water-housing or jet-ski follow-cam. Starting spec (from [01 §2.2](01-visual-references.md)):
+   - 4–7 m behind the surfer, stretching at speed and tightening in the barrel;
+   - lens 1.6–2.5 m above the water, so the head never crosses the horizon; about 1 m for
+     paddling;
+   - 40–50° vertical FOV, with no fisheye;
+   - horizon level, passing only 15–30% of board roll;
+   - about 0.3–0.5 s yaw lag, which makes the camera swing wide in bottom turns and reveal the
+     wave face.
+
+   Note that real media has almost no *continuous* rear-chase footage: it combines follow-cam
+   proximity with drone stability. Every surf game's camera complaint is the same: too close,
+   can't read the wave.
    - No impossible moves: no instant re-framing, no orbiting during a turn, no game-style FOV
      punch.
    - Real follow-cam footage has water on the housing, occasional spray hits and slight bob.
@@ -56,7 +66,7 @@ afternoon.*
 | **Environment** | Green volcanic ridges 1–3 km away with soft blue aerial perspective. Palm-fringed beach as a thin band. Cumulus building over the mountains. Indonesian variant: jungle islands, reef visible through the water, warmer and more humid haze. |
 | **Character** | Shirtless, boardshorts, sun-tanned, wet hair. The hardest wardrobe for realism because the back skin and muscle deformation are fully exposed. A rash-vest option reduces risk. |
 | **Hero moments** | The translucent barrel (Shot 5), spray backlit through the lip, drops falling from the lip into the frame. |
-| **Real-time feasibility** | **High.** One sun, one tight shadow map, sky IBL, water-bounce fill. Translucency of the lip is the water team's main investment. |
+| **Real-time feasibility** | **Rendering cost low; believability risk highest.** One sun, one tight shadow map, sky IBL, water-bounce fill. Translucency of the lip is the water team's main investment. |
 | **Main risk** | Midday clarity exposes every flaw: skin shading, deformation, contact. A clean bright look can slide into "video game" if the grade and sky are not carefully authored. |
 
 ## 3. Proposal B — "Golden Hour Cinematic"
@@ -105,22 +115,43 @@ Late afternoon into sunset.*
 | Dependency on water renderer quality | very high (clear water shows everything) | medium (glare hides detail) | medium (foam, texture) |
 | Variety over an indefinite run | ★★ | ★★★ (angle to sun changes constantly) | ★★ |
 
-**Recommendation.**
+**A fourth option from the reference study: D "Soft Overcast".** Evidence: Mentawai under high
+cloud (IMG-24), an overcast Oʻahu barrel (IMG-34), fog surf (IMG-65). This is a tropical or
+temperate location under high, thin cloud: soft teal water, no sparkle, soft speculars, the
+sky dome doing the lighting. It is **the cheapest look to make believable** (no hard contact
+shadows to get wrong), and it reads as a real camera because games rarely ship overcast.
+Adopt it as a **weather variant** of any location and as the engineering baseline.
 
-1. **Do not choose one. Build one lighting pipeline that renders all three as data presets.**
+**Corrections from measured reference colour ([01 §9](01-visual-references.md)):**
+- Real tropical water reads **teal/jade, not candy turquoise**. Turquoise appears only where
+  light passes *through* the lip.
+- Whitewater covers 25–45% of the frame.
+- Spray in sports photography is **frozen** (1/1000 s), not motion-blurred.
+- Keep saturation honest. Over-saturation is the fastest route to "game".
+
+**Recommendation (revised after the reference study).**
+
+1. **Do not choose one. Build one lighting pipeline that renders all of them as data presets.**
    The architecture in [06](06-environments-and-lighting.md) (sky provider + location preset +
-   per-location LUT) already makes this the natural design. The cost of supporting all three
+   per-location LUT) already makes this the natural design. The cost of supporting all of them
    is a few presets plus the sky and cloud work, which we need anyway.
-2. **Lead with A + B as one location's day cycle.** The visualization runs indefinitely, so a
-   slow time-of-day progression on a tropical or Californian reef is a strong idea: late-morning
-   clarity → afternoon → golden hour → blue hour, then reset. It gives variety without changing
-   location, and it showcases the dynamic sky.
-3. **Use C as the stress test for the character pipeline.** If the surfer doesn't hold up in
-   soft Atlantic light in a wetsuit, the problem is animation and contact, not lighting.
-4. **Milestone-1 wardrobe:** boardshorts plus an optional short-sleeve rash vest or spring suit,
-   switchable in the lab. If shirtless skin under tropical sun is not convincing by the end of
-   the character bake-off ([02](02-character-assets.md) E1–E4), ship the first public build
-   with the spring suit.
+2. **Hero look: B, Golden Hour.** It suits the rear chase best: riding toward the sun gives a
+   rim-lit silhouette and backlit spray as the brightest element. Silhouettes are forgiving
+   for the character, and the constantly changing sun angle adds variety. Requirements: the
+   wave should peel roughly toward the sun azimuth for part of each ride, and exposure, bloom
+   and glare must be excellent. ShoreBreak already has the beginnings of these.
+3. **Engineering baseline: D, Soft Overcast,** with C (Atlantic) as the second location.
+   Develop the character, contact and animation first under soft light, where errors are
+   animation errors, not lighting errors.
+4. **A, Tropical Clarity, comes last, despite looking the most commercial.** Its rendering
+   cost is low, but its *believability* risk is the highest: hard sun on bare skin exposes
+   every shading, deformation and contact flaw.
+5. **Long-run variety:** the visualization runs indefinitely, so add a slow time-of-day and
+   weather cycle per location. For example: overcast morning (D) → clearing afternoon (A-like)
+   → golden hour (B) → blue hour, then reset.
+6. **Milestone-1 wardrobe:** spring suit or 3/2 wetsuit first (B/C/D). Boardshorts and bare skin
+   are a switchable variant in the lab. Shirtless becomes a default only once it passes the
+   character bake-off ([02](02-character-assets.md) E1–E5).
 
 Confirm the decision after the previs bake-off ([09](09-video-previs.md)). Seeing all three in
 motion with the rear chase camera is the real test.

@@ -124,7 +124,7 @@ log).
 | Camera | Notes |
 |---|---|
 | Orbit | Inspection; free |
-| **Rear chase** | Spring-damped follow of a point on the board-heading frame H. Parameters: distance (default 4 m), height (1.5 m), FOV (35 mm FF equivalent ≈ 38° vertical), lag half-lives (position, yaw), horizon roll follow (0–20%), bob. Presets A/B/C from the art direction. The *same* class later ships in the visualization. |
+| **Rear chase** | Spring-damped follow of a point on the board-heading frame H. Parameters: distance (default 5 m, range 4–7, stretch with speed, about 3 m in barrels), height (default 2 m, range 1.6–2.5; about 1 m when paddling), vertical FOV (default 45°, range 40–50°, rectilinear only), yaw lag (0.3–0.5 s critically damped), height lag (0.2 s), horizon roll follow (15–30%), bob. Values from [01 §2.2](01-visual-references.md). There are presets per art direction. The *same* class later ships in the visualization. |
 | Side profile, front, top | Analysis: knee angles, lean, stance width |
 | Reference-match | Free FOV, height and distance to line up with a reference clip's framing |
 

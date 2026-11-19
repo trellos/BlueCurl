@@ -97,9 +97,14 @@ directly before buying anything.
    surf animation. Watch the licences: Hunyuan models exclude the EU, UK and South Korea, and
    the FLUX dev weights are non-commercial.
 9. **Art direction.** Three realistic proposals: A *Tropical Clarity*, B *Golden Hour
-   Cinematic*, C *Atlantic Power*. Recommendation: build all three as presets of one pipeline.
-   Lead with **A→B as a time-of-day cycle** on one tropical or Californian location, and use C
-   as the character stress test. ([08](08-art-direction.md))
+   Cinematic*, C *Atlantic Power*. The reference study added a fourth, D *Soft Overcast*.
+   Build all of them as presets of one pipeline.
+   - **Hero look: B.** Backlit spray and a rim-lit silhouette suit the rear chase camera.
+   - **Engineering baseline: D/C.** Soft light separates animation errors from lighting errors.
+   - **A last.** It is cheap to render but the least forgiving of character flaws.
+
+   Real reference colour is less saturated than expected: teal/jade water, turquoise only
+   through the lip. ([08](08-art-direction.md), [01](01-visual-references.md))
 10. **Next step:** the smallest experiment set is in [11](11-experiments.md). The critical path
     is X1 (moving-board rig test) → X2 (footage-matched believability gate), with X3/X4
     (video→board-frame motion) in parallel. The decision point is in about 3 weeks.
@@ -117,7 +122,8 @@ directly before buying anything.
 | 2026-11-19 | Procedural `boardkit` (clean-room); don't port BoardCAD (GPL) | Proposed | 03 §8 |
 | 2026-11-19 | Character milestone 1: MetaHuman vs CC5 bake-off; open-topology "BlueCurl body" for production | Proposed; needs X0 answers | 02 §7 |
 | 2026-11-19 | Lighting contract: ShoreBreak relative units; surfer in the opaque HDR pass; one shared sky/sun/haze; single post chain with look profiles | Proposed; needs water team | 06 §B8 |
-| 2026-11-19 | Three art directions as presets of one pipeline; lead with an A→B time-of-day cycle | Proposed | 08 §5 |
+| 2026-11-19 | Art directions as presets of one pipeline; B is the hero look, D/C the engineering baseline, A last; time-of-day and weather cycle for long runs | Proposed; confirm after the previs bake-off | 08 §5, 01 §9 |
+| 2026-11-19 | Chase camera starting spec: 4–7 m back, 1.6–2.5 m high, 40–50° vertical FOV, level horizon (15–30% roll), 0.3–0.5 s yaw lag, no fisheye, frozen spray | Proposed; watch the follow-cam clips in 01 §2.3 first | 01 §2.2 |
 | 2026-11-19 | AI video previs is a look/camera reference only, never a motion reference | Adopted | 07, 09 |
 
 ### Rejected alternatives (summary; details in each document)

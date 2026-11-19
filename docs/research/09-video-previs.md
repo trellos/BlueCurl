@@ -116,11 +116,16 @@ same board in 5'10".
 ### 3.4 Camera block (paste verbatim)
 
 > Continuous single-take rear chase camera, like a stabilized follow-cam on a jet ski directly
-> behind the surfer. The camera stays about 4 metres behind the surfer, lens at about 1.5 m
-> above the water (chest height of the standing surfer), 35 mm full-frame look, stabilized
-> gimbal with a level horizon. The surfer's back is centred, just below the frame centre. The
-> camera follows the surfer's path through every turn with slight, natural lag. No cuts, no
-> zooms, no angle changes. Real-time speed. Natural motion blur, 180-degree shutter.
+> behind the surfer. The camera stays about 5 metres behind the surfer, lens about 2 metres
+> above the water (just above the surfer's head, so the head never crosses the horizon),
+> 28 mm full-frame look with no fisheye distortion, on a stabilized gimbal with a level
+> horizon. The surfer sits in the lower-middle of the frame, with the open wave face visible
+> beside him. The camera follows the surfer's path through every turn with slight, natural
+> lag, swinging wide in turns. No cuts, no zooms, no angle changes. Real-time speed. Fast
+> sports shutter: spray droplets are crisp and frozen.
+
+(Camera values follow [01 §2.2](01-visual-references.md). For the paddling shots, lower the
+lens to about 1 m.)
 
 ### 3.5 Style block (append per art direction)
 
