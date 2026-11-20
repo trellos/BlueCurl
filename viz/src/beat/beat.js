@@ -5,6 +5,8 @@ import { STEP_TOL } from '../contracts.js';
 
 const RING = 64;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+/** Measure length (s) for a bpm; a missing/invalid bpm falls back to 120 so the clock never stalls. */
+export const measureLenFor = (bpm) => 240 / (Number.isFinite(+bpm) && +bpm > 0 ? clamp(+bpm, 1, 1000) : 120);
 
 export class Beat {
   constructor(cfg) { this.cfg = cfg; this.reset(); }
@@ -15,7 +17,7 @@ export class Beat {
     this.t = 0;
     this.measure = 0;
     this.measureT0 = 0;
-    this.measureLen = 240 / this.cfg.bpm;
+    this.measureLen = measureLenFor(this.cfg.bpm);
     this.beatLen = this.measureLen / 4;
     this.notes = 0;
     this.level = 1;
@@ -43,7 +45,7 @@ export class Beat {
     this.target = target;
     this.measure++;
     this.measureT0 = t1;
-    this.measureLen = 240 / this.cfg.bpm;
+    this.measureLen = measureLenFor(this.cfg.bpm);
     this.beatLen = this.measureLen / 4;
     this.notes = 0;
     this._push(this.events, { t: t1, type: 'downbeat', index: this.measure, level: this.level, prevLevel, change: this.level - prevLevel });
