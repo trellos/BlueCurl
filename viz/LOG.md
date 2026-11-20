@@ -23,3 +23,4 @@
 - WP8 video mode (ebbcb62): segmented ffmpeg streaming, 69 fps @720p, ~17 KB/frame, resumable (framemd5-identical).
 - WP1 fix (5ea9b64): D3D11 FFT corruption fixed (separate single-texture targets + own mip passes; fresh-page same-t diff 0 px, was up to 106k px). Remaining D3D11 diff = 1-LSB fx sprites only. `?piptest` removed; log reload resets all systems.
 - WP6a fix (b5e66d7): take-off 0.7–0.95 s; rides run to the peel end (up to 9.8 s standing); eased catch; prevAction/actionStart/trail for WP6b. Barrel tubes on set 2 (outer 1.3 s, point 1.2 s).
+- WP7 round 2 (7314101): default wide preset 'lineup' (0,39.5,60)→(130,−15,−10) fov 72: all zones in frame, headland/stacks framing right, point ~128 m, PiP bottom-left. Key C cycles lineup/point/cliff (logged cfg 'camera'). DEFAULT_CFG.pip.corner='auto' (per preset). Open: thin white 'fishing line' artefact (not rider wakes; WP4b bisecting).

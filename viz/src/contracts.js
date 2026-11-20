@@ -68,7 +68,8 @@ export const DEFAULT_CFG = {
   laneSigma: 0.8,          // gaussian spill in lanes
   ambient: { amp: 0.22, period: 12, amp2: 0.12, period2: 17 },
   pip: { enabled: true, onTakeoff: true, onBarrel: true, minHeight: 0.8, maxConcurrent: 1,
-         holdAfterRide: 1.5, size: 1 / 3, corner: 'bottom-right' },
+         holdAfterRide: 1.5, size: 1 / 3, corner: 'auto' },   // 'auto' = per camera preset (WP7)
+  camera: 'lineup',        // wide presets: lineup | point | cliff (key C)
   hud: true,
 };
 export const intervalSec = (cfg) => cfg.bars * 4 * 60 / cfg.bpm;
