@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlueCurl Riders (dev)</title>
+<link rel="icon" href="data:," />
+<style>
+  html, body { margin: 0; height: 100%; background: #10141c; overflow: hidden; }
+  canvas { display: block; }
+  #info { position: fixed; left: 8px; top: 8px; font: 12px/1.35 ui-monospace, monospace; color: #dfe8f0;
+          background: rgba(0,0,0,.45); padding: 6px 8px; border-radius: 4px; white-space: pre; pointer-events: none; z-index: 5; }
+  .lbl { position: fixed; font: 600 12px/1 ui-monospace, monospace; color: #fff; text-shadow: 0 1px 2px #000;
+         transform: translate(-50%, 0); pointer-events: none; z-index: 4; white-space: nowrap; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info"></div>
+<script type="module" src="./riders.js"></script>
+</body>
+</html>
