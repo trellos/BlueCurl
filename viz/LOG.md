@@ -13,3 +13,5 @@
 - Known: in the bay, set fronts are ~20 m apart but a profile is ~40 m wide → WP4b clips each mesh at the midpoint to its neighbours.
 - Known (WP3): a column still re-forming from an outer break (tau≈1.5) can start its point break immediately, so tau jumps 1.5→0 (possible pop). Rare; check in integration stills.
 - WP5 landed (83c5d5f). To check in integration: white flat blotches near the point at t=22 (shallow water blowout or fx sprites?); fx washed out in the sun-glitter column; replay not pixel-identical (suspected FFT ocean state, see WP8).
+- WP8 landed (565bf91): resumable capture byte-identical across crashes/kills/context loss under `--angle vulkan` (capture default). Defects found: OceanFFT slope mip corruption under D3D11 (~1 frame in 4; also live flicker) → WP1 fixing; fx sprite 1-LSB noise under D3D11-on-12 (ignored). Disk: C: 90 % full, PNG ≈1.6 MB/frame → WP8 adding segmented ffmpeg-streamed video mode.
+- Incident: WP8 force-killed the kapture-mcp node process by mistake during testing; the user may need to restart that MCP server.
