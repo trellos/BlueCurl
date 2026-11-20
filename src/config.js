@@ -26,6 +26,7 @@ function parseSurf() {
     chop: qn('chop', 1.0, 0, 3),             // wind-sea (FFT) amplitude multiplier
     zBreak: qn('zbreak', -7.0, -12, -4),     // cross-shore landing line of the lip (m, shore at z = 0)
     period: qn('period', 12.0, 7, 20),       // time between successive peeling waves (s)
+    closeout: QS.has('closeout'),            // no peel: the whole line breaks at once (a close-out)
     seed: qn('seed', 7, 0, 1e6),
   };
 }

@@ -222,7 +222,7 @@ export function surfEvents(S = SURF) {
       c: 2.5 * Math.sqrt(H / H_REF),
       style: S.curl, kappa: -0.2 + 0.45 * S.curl, spill: 0.6 * (1 - S.curl),
       hvar: 0.06, wobble: 0.01, waviness: 0.05, tilt: 0,
-      x0: 0, aR1: S.dir / S.peel, aR2: 0, aL1: 0, aL2: 0, F: [0, 0, 1, 0],
+      x0: 0, aR1: S.closeout ? 0 : S.dir / S.peel, aR2: 0, aL1: 0, aL2: 0, F: [0, 0, 1, 0],
       // bounded along-crest timing modulation on top of the linear peel: +-25 % peel speed, the
       // sections that break early are a little bigger and break a little further out
       far: 0.16 + 0.04 * r(), farPhase: r(),

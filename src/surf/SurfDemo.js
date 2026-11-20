@@ -57,7 +57,8 @@ const CAM_VIEW = QS.get('cam') || 'chase';
 // the curl impacts at time T, so a clip around T shows the wave build, throw its lip and collapse while
 // the peel runs past. beach: eye level from the sand; channel: a water photographer on the shoulder,
 // looking down the line into the curl; drone: elevated oblique over the line-up.
-const SHOT = QS.get('shot');
+// ?closeout: the line breaks all at once; there is nothing to ride, so a spectator shot is forced.
+const SHOT = QS.get('shot') || (QS.has('closeout') && QS.has('surf') ? 'closeout' : null);
 const SHOT_AT = Number.isFinite(parseFloat(QS.get('at'))) ? parseFloat(QS.get('at')) : 24;
 
 export class SurfDemo {
@@ -78,15 +79,26 @@ export class SurfDemo {
 
   /** switch view at run time: 'chase' | 'side' | 'aerial' or a spectator shot 'beach' | 'channel' | 'drone' */
   setView(v) {
-    if (v === 'beach' || v === 'channel' || v === 'drone') { this.shot = this._shotSetup(v, this.shot?.T ?? SHOT_AT); this.view = 'watch'; }
+    if (v === 'beach' || v === 'channel' || v === 'drone' || v === 'closeout') { this.shot = this._shotSetup(v, this.shot?.T ?? SHOT_AT); this.view = 'watch'; }
     else this.view = v;
   }
   get viewKey() { return this.view === 'watch' ? this.shot.kind : this.view; }
 
   /** fixed spectator camera around the column where the curl impacts at time T */
   _shotSetup(kind, T) {
-    const e = this.plEvent, dir = Math.sign(e.aR1) || 1;
-    const xw = xAtArrival(e, T, 0, this._guess(T, 0));
+    let e = this.plEvent, xw;
+    const dir = Math.sign(e.aR1) || 1;
+    if (e.aR1 === 0) {
+      // close-out: watch x = 0 and the wave whose impact there is nearest T (T becomes that impact)
+      xw = 0;
+      let best = null;
+      for (const ev of this.schedule.events) {
+        const b = slice(planningEvent(ev), 0, true), Ti = b.ti - b.D;
+        if (!best || Math.abs(Ti - T) < Math.abs(best.Ti - T)) best = { ev, Ti };
+      }
+      e = planningEvent(best.ev); T = best.Ti;
+      this.watchEvent = best.ev;
+    } else xw = xAtArrival(e, T, 0, this._guess(T, 0));
     const w = waveAt(e, xw, T, true);
     const zA = w.apexZ, zL = w.b.zI;                     // lip apex / landing line at impact
     const H = this.S.height;
@@ -94,6 +106,10 @@ export class SurfDemo {
     if (kind === 'channel') {
       pos = [xw + 20 * dir, 0.6 + 0.35 * H, zL + 3.5];
       look = [xw - 2 * dir, 0.45 * H, zA - 0.5];
+    } else if (kind === 'closeout') {
+      // from the sand, looking down the line at ~20 deg: the lip's profile as it pitches shoreward
+      pos = [xw + 24 * dir, 2.3, 1.5];
+      look = [xw - 4 * dir, 0.55 * H, zA - 0.5];
     } else if (kind === 'drone') {
       pos = [xw + 11 * dir, 4 + 2.5 * H, zL + 12];
       look = [xw - 5 * dir, 0, zA - 1];
@@ -319,9 +335,10 @@ export class SurfDemo {
     cam.lookAt(s.look[0], s.look[1], s.look[2]);
     cam.updateMatrixWorld();
     // where the curl (impact, tn = 0) is now, relative to the watched column (+: past it)
-    const xImp = xAtArrival(this.event, t, 0, s.xw + (t - s.T) / (this.event.aR1 || 1));
-    const w = waveAt(this.event, s.xw, t);
-    this.tel = { t: +t.toFixed(3), phase: 'watch:' + s.kind, curlPastColumn: +((xImp - s.xw) * s.dir).toFixed(2),
+    const ev = this.watchEvent || this.event;
+    const xImp = ev.aR1 ? xAtArrival(ev, t, 0, s.xw + (t - s.T) / ev.aR1) : (t >= s.T ? s.xw + 1 : s.xw - 1);
+    const w = waveAt(ev, s.xw, t);
+    this.tel = { t: +t.toFixed(3), phase: 'watch:' + s.kind, impactT: +s.T.toFixed(3), curlPastColumn: +((xImp - s.xw) * s.dir).toFixed(2),
       columnTn: +w.tn.toFixed(3), columnCrestY: +w.crestY.toFixed(2), cam: { pos: s.pos.map((v) => +v.toFixed(2)), look: s.look.map((v) => +v.toFixed(2)) } };
   }
 
