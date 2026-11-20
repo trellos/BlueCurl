@@ -53,8 +53,12 @@ export function createWaveLookUniforms() {
     uWvLook: { value: new THREE.Vector4(1.5, 0.16, 0.55, 1.15) },   // lip glow, face glow, foam backlight, foam gain
     uLipTint: { value: new THREE.Vector3(0.10, 1.0, 0.78) },       // turquoise (thin lip)
     uFaceTint: { value: new THREE.Vector3(0.02, 0.62, 0.48) },     // jade / green-cyan (face, tube wall)
-    uFoamTune: { value: new THREE.Vector4(9.0, 3.0, 1.0, 0.8) },   // tile m, trail decay s, coverage gain, lip-line gain
+    uFoamTune: { value: new THREE.Vector4(9.0, 3.0, 1.0, 1.3) },   // tile m, trail decay s, coverage gain, lip-line gain
     uFoamTex: { value: null },
+    uFaceDark: { value: new THREE.Vector4(0.32, 0.62, 0.66, 0.85) },  // face multiplier (rgb) and strength
+    uTroughDark: { value: 0.28 },                                    // dark band in the trough in front of the face
+    uCrestLit: { value: 0.45 },                                      // lit crest line on swells / walls
+    uFoamRelief: { value: 0.12 },                                    // foam bump height (× H, m)
     uWvDebug: { value: 0 },       // dev: 1 base water, 2 transmission, 3 foam, 4 normal, 5 sigma/tau, 6 path
   };
 }
@@ -176,6 +180,10 @@ uniform vec4 uClip;
 uniform vec4 uWvLook;
 uniform vec3 uLipTint;
 uniform vec3 uFaceTint;
+uniform vec4 uFaceDark;
+uniform float uTroughDark;
+uniform float uCrestLit;
+uniform float uFoamRelief;
 uniform int uWvDebug;
 in vec3 vP;
 in vec2 vXZ;
@@ -222,15 +230,26 @@ void main() {
   // on breaking water keep sun glints below the lip glow (no isolated 'headlight' highlights on the curl)
   col = mix(col, col * min(1.0, 3.5 / max(bcLuma(col), 1e-3)), brkF);
 
-  // ---- light transmitted through thin raised water (backlit lip / face)
   float tau = vA.x, tauU = vA.y, H = vA.w, xi = vB.x, yl = vB.y, th = vB.z, sg = vB.w;
   float Hs = max(H * uAlpha, 0.3);
+  // ---- value structure so a wave reads from far away: darker saturated teal face (the sky reflection on the
+  // shoreward face is cut; red goes first), a soft dark band in the trough in front of it, a lit crest line
+  float Hk = smoothstep(0.35, 1.6, H * uAlpha);
+  float faceK = Hk * smoothstep(WV_SIG_CREST - 0.02, WV_SIG_CREST + 0.06, sg) * (1.0 - smoothstep(WV_SIG_TROUGH - 0.02, WV_SIG_TROUGH + 0.06, sg))
+              * smoothstep(0.0, 0.45, -N.x);
+  col = mix(col, col * uFaceDark.rgb, faceK * uFaceDark.w);
+  float dtr = (sg - WV_SIG_TROUGH - 0.03) / 0.07;
+  col *= 1.0 - uTroughDark * Hk * exp(-dtr * dtr);
+  float dcr = (sg - WV_SIG_CREST - 0.02) / 0.04;
+  float crestK = Hk * exp(-dcr * dcr) * (1.0 - smoothstep(0.1, 0.4, tau) * step(0.0, vA.z));
+
+  // ---- light transmitted through thin raised water (backlit lip / face)
   float elev = smoothstep(0.06, 0.4, yl / Hs) * smoothstep(0.25, 1.0, H * uAlpha);
   float NoV = abs(dot(N, V));
   // light path through the sheet: along the view and along the (low) sun; a swell crest is thin along its normal
   // but long along the sun's grazing ray, so only lips and steep faces transmit
   float NoL = abs(dot(N, uSunDir));
-  float path = 0.5 * th / max(NoV * 0.6 + 0.4, 0.3) + 0.5 * th / max(NoL, 0.12);
+  float path = max(0.5 * th / max(NoV * 0.6 + 0.4, 0.3) + 0.5 * th / max(NoL, 0.12), 0.3);
   float cosS = dot(-V, uSunDir);
   float ph = 0.22 + 0.78 * wvHG(cosS, 0.55) / wvHG(1.0, 0.55);
   float backlit = mix(0.4, 1.0, smoothstep(0.2, -0.3, dot(Nv, uSunDir)));
@@ -238,16 +257,28 @@ void main() {
   float F = bcFresnelWater(NoV);
   vec3 tint = mix(uLipTint, uFaceTint, smoothstep(0.4, 3.5, path));
   float trans = uWvLook.x * exp(-path * 0.5) + uWvLook.y * exp(-path * 0.22);
-  col += tint * sunL * trans * ph * backlit * elev * (1.0 - F);
+  col += min(tint * sunL * trans * ph * backlit * elev * (1.0 - F), vec3(3.4));   // no hot pixels at the very tip
+  // lit crest: low sun catching / shining through the top of the swell (turquoise-gold rim)
+  col += mix(uLipTint, vec3(1.0, 0.72, 0.42), 0.45) * sunL * uCrestLit * crestK * (0.35 + 0.65 * ph);
 
   // ---- foam
-  float lipLine, fshade;
-  float fc = wvFoam(tauU, sg, xi, yl, H, vC.x, vC.y, vC.z, uFrontVX, vP, Nv, uClip.x, uAlpha, uTime, lipLine, fshade);
+  float lipLine, fshade, fh;
+  float fc = wvFoam(tauU, sg, xi, yl, H, vC.x, vC.y, vC.z, uFrontVX, vP, Nv, uClip.x, uAlpha, uTime, lipLine, fshade, fh);
+  // foam relief: bump normal from the foam height (screen-space surface gradient), so lumps have lit tops and
+  // shoreward sides in their own shade
+  vec3 dpx = dFdx(vP), dpy = dFdy(vP);
+  float hm = fh * uFoamRelief * max(H, 0.5);
+  float hx = dFdx(hm), hy = dFdy(hm);
+
   if (fc > 0.0) {
-    vec3 Nf = normalize(mix(Nv, vec3(0.0, 1.0, 0.0), 0.35));
+    vec3 N0 = normalize(mix(Nv, vec3(0.0, 1.0, 0.0), 0.3));
+    vec3 r1 = cross(dpy, N0), r2 = cross(N0, dpx);
+    float det = dot(dpx, r1);
+    vec3 Nf = normalize(abs(det) * N0 - sign(det) * (hx * r1 + hy * r2));
+    float lit = smoothstep(-0.35, 0.45, dot(Nf, uSunDir));           // soft self-shadow on the shoreward side
     float phF = 0.3 + 0.7 * wvHG(cosS, 0.35) / wvHG(1.0, 0.35);
     vec3 warm = vec3(1.0, 0.86, 0.72);
-    vec3 fcol = bcShadeFoam(Nf) * uWvLook.w + uSunColor * warm * uWvLook.z * phF;
+    vec3 fcol = bcShadeFoam(Nf) * uWvLook.w * mix(0.55, 1.15, lit) + uSunColor * warm * uWvLook.z * phF * (0.5 + 0.5 * lit);
     fcol *= fshade * (1.0 + lipLine);
     col = mix(col, fcol, fc);
   }

@@ -21,9 +21,9 @@ import { FRONT_W } from '../contracts.js';
 
 export const SPRAY_PER_FRONT = 4800;
 export const SPRAY_MAX_FRONTS = 6;            // ≤ 28.8k particles
-export const XHIST_N = 12;
-export const XHIST_DT = 0.3;                  // s; table covers tl − 3.1 … tl + 0.2
-export const SPRAY_LIFE_MAX = 3.0;
+export const XHIST_N = 14;
+export const XHIST_DT = 0.3;                  // s; table covers tl − 3.7 … tl + 0.2
+export const SPRAY_LIFE_MAX = 3.4;
 
 export function makeSprayGeometry(n = SPRAY_PER_FRONT) {
   const pos = new Float32Array(n * 3);
@@ -83,9 +83,9 @@ void main() {
   int nb = int(uSprayB.w + 0.5);
   if (nb <= 0 || uAlpha <= 0.0) return;
   float id = position.x, N = uSprayTune.x, tl = uFrontTime;
-  int kind = id < N * 0.55 ? 0 : (id < N * 0.86 ? 1 : 2);
+  int kind = id < N * 0.45 ? 0 : (id < N * 0.72 ? 1 : 2);
   uint s0 = spPcg(uint(id) * 9781u + 17u);
-  float life = kind == 0 ? mix(0.8, 1.5, spRnd(s0)) : kind == 1 ? mix(0.9, 1.7, spRnd(s0)) : mix(1.8, ${SPRAY_LIFE_MAX.toFixed(1)}, spRnd(s0));
+  float life = kind == 0 ? mix(0.8, 1.5, spRnd(s0)) : kind == 1 ? mix(0.9, 1.7, spRnd(s0)) : mix(2.0, ${SPRAY_LIFE_MAX.toFixed(1)}, spRnd(s0));
   float period = life * 1.12;
   float ph = spRnd(s0) * period;
   float cyc = floor((tl + ph) / period);
@@ -98,7 +98,7 @@ void main() {
   int bi = int(k == 0 ? uSprayB.x : k == 1 ? uSprayB.y : uSprayB.z);
   vec4 A = uFrontZB[bi * 3], B = uFrontZB[bi * 3 + 1], C = uFrontZB[bi * 3 + 2];
   float Tb = B.z;
-  float tauT = kind == 0 ? mix(0.1, 0.6, spRnd(s)) : kind == 1 ? mix(0.56, 0.85, spRnd(s)) : mix(0.6, 1.0, spRnd(s));
+  float tauT = kind == 0 ? mix(0.1, 0.6, spRnd(s)) : kind == 1 ? mix(0.56, 0.85, spRnd(s)) : mix(0.58, 1.6, spRnd(s));    // mist: plunge + along the whitewater
   float dtc = te - tauT * Tb - A.x;                     // column start relative to tBreak
   if (dtc < 0.0) return;
   bool clo = C.y > 0.5;
@@ -111,7 +111,7 @@ void main() {
   if (c.zi != C.w || abs(c.tau - tauT) > 0.15) return;
   float H = c.H;
   float str = kind == 0 ? H * (0.3 + 0.7 * max(c.curl, c.steep)) : H * (0.35 + 0.65 * c.curl);
-  float keep = clamp(str * uSprayTune.w * (kind == 2 ? 0.3 : 0.38) - 0.12, 0.0, 1.0);
+  float keep = clamp(str * uSprayTune.w * (kind == 2 ? 0.42 : 0.38) - 0.12, 0.0, 1.0);
   if (spRnd(s) > keep) return;
 
   // emission point: lip tip at te, lip velocity by finite difference
@@ -137,8 +137,9 @@ void main() {
     p0 += vec3(0.0, -0.15 * H, 0.0);
   } else {
     p0 += vec3((r3 - 0.5) * 1.5 * hs, -0.2 * H, (spRnd(s) - 0.5) * 2.0);
-    v0 = vec3(mix(-1.0, -3.0, r1), mix(0.8, 2.6, r2) * hs, (spRnd(s) - 0.5) * 1.5);
-    vw = uWind * 0.3 + vec3(0.0, 0.3, 0.0); kd = 1.1; gr = 0.25; size = mix(1.2, 2.6, r4) * hs * (0.55 + 0.8 * age / life); a0 = 0.2;
+    v0 = vec3(mix(-1.0, -3.0, r1), mix(1.2, 3.5, r2) * hs, (spRnd(s) - 0.5) * 1.5);
+    vw = uWind * 0.35 + vec3(0.0, 0.45, 0.0); kd = 1.0; gr = 0.15;     // rising, drifting back over the wave
+    size = mix(2.8, 7.0, r4) * hs * (0.45 + 0.9 * age / life); a0 = 0.32;
   }
   float e = exp(-kd * age);
   vec3 p = p0 + vw * age + (v0 - vw) * (1.0 - e) / kd - vec3(0.0, gr, 0.0) * (age / kd - (1.0 - e) / (kd * kd));
@@ -153,18 +154,20 @@ void main() {
   float dist = max(-mv.z, 0.1);
   size *= uSprayTune.z;
   if (kind < 2 && !veil) size = max(size, dist * 0.0022);
+  if (kind == 2) fade *= smoothstep(3.0, 14.0, dist);          // no screen-filling puffs right at the camera
   float px = size * projectionMatrix[1][1] * uViewH * 0.5 / dist;
   // phase of the low sun: cosθ between light travel (−L) and the direction toward the eye
   vec3 V = normalize(cameraPosition - p);
   float cth = dot(-uSunDir, V);
   float phase = 0.7 * spHG(cth, 0.75) + 0.3 * spHG(cth, -0.2);
   bool soft = kind == 2 || veil;
-  vec3 rad = uSunColor * phase * uSprayTune.y * 3.0 * (soft ? 0.45 : 1.0) + uSkyAmb * (soft ? 0.8 : 0.7);
+  vec3 rad = uSunColor * (phase * uSprayTune.y * 3.0 * (soft ? 0.45 : 1.0) + (soft ? 0.09 : 0.0)) + uSkyAmb * (soft ? 0.9 : 0.7);
+  rad = min(rad, vec3(9.0));                                   // backlit droplets bloom, but no blown-out blobs
   vCol = vec4(rad, a0 * fade);
   vKind = soft ? 2.0 : float(kind);
   vSeed = float(s & 1023u) / 1023.0;
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = clamp(px, 1.0, 900.0);
+  gl_PointSize = clamp(px, 1.0, 640.0);
 }`;
 
 const FRAG = /* glsl */ `

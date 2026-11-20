@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { NCOLS, ZONES } from '../src/contracts.js';
 import { computeClips, frontHmax, MAX_FRONT_MESHES } from '../src/wave/WaveMesh.js';
 import { OceanHook, CUT_OVERSHOOT, RAMP, MAX_HOOK_FRONTS } from '../src/wave/oceanHook.js';
-import { activeSprayBreaks, fillCrestHistory, XHIST_N, XHIST_DT, SPRAY_PER_FRONT, SPRAY_MAX_FRONTS } from '../src/wave/spray.js';
+import { activeSprayBreaks, fillCrestHistory, XHIST_N, XHIST_DT, SPRAY_PER_FRONT, SPRAY_MAX_FRONTS, SPRAY_LIFE_MAX } from '../src/wave/spray.js';
 import { makeWaveGeometry, WAVE_COLS, WAVE_ROWS } from '../src/wave/waveMaterial.js';
 import { extentBack, extentFront } from '../src/wave/profile.js';
 import { makeFront, zoneBreak } from '../dev/wave-fronts.js';
@@ -69,15 +69,15 @@ test('spray: active breaks window', () => {
   const f = makeFront({ breaks: [zb], cols: flat(2) });
   assert.deepEqual(activeSprayBreaks(f, 9), []);
   assert.deepEqual(activeSprayBreaks(f, 10.5), [0]);
-  assert.deepEqual(activeSprayBreaks(f, 10 + 80 / 8 + 2.6 + 2.9), [0]);
-  assert.deepEqual(activeSprayBreaks(f, 10 + 80 / 8 + 2.6 + 3.1), []);
+  assert.deepEqual(activeSprayBreaks(f, 10 + 80 / 8 + 2.6 + SPRAY_LIFE_MAX - 0.1), [0]);
+  assert.deepEqual(activeSprayBreaks(f, 10 + 80 / 8 + 2.6 + SPRAY_LIFE_MAX + 0.1), []);
   assert.ok(Z.Tb > 0);
 });
 
 test('crest history covers the particle lifetimes and is a pure function', () => {
   const hist = new Float32Array(XHIST_N), ht = { x: 0, y: 0, set(a, b) { this.x = a; this.y = b; } };
   fillCrestHistory((tl) => 100 - 9 * tl, 5, hist, ht);
-  assert.ok(ht.x <= 5 - 3.0 && ht.x + (XHIST_N - 1) * XHIST_DT >= 5 + 0.04);
+  assert.ok(ht.x <= 5 - SPRAY_LIFE_MAX && ht.x + (XHIST_N - 1) * XHIST_DT >= 5 + 0.04);
   for (let i = 0; i < XHIST_N; i++) assert.ok(Math.abs(hist[i] - (100 - 9 * (ht.x + i * XHIST_DT))) < 1e-3);
   const h2 = new Float32Array(XHIST_N);
   fillCrestHistory((tl) => 100 - 9 * tl, 5, h2, ht);

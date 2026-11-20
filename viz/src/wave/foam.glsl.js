@@ -43,11 +43,11 @@ vec4 wvFlowTex(vec2 q, vec2 dir, float spd, float t) {
  * Foam coverage 0..1 and (out) lip-line strength (for extra brightness).
  * tauU: unclamped break age in Tb units (<0 before the break); sg: sigma; xi, yl: local cross-section (m);
  * H column height; curl, mush shape; Tb s; vx crest speed (m/s, negative); P world position; xiMin back edge of
- * the mesh (local xi, m); N shading normal; alpha front fade; t sim time. shade: relief multiplier for the colour.
+ * the mesh (local xi, m); N shading normal; alpha front fade; t sim time. shade: brightness relief; height: foam relief height 0..1 (bump).
  */
 float wvFoam(float tauU, float sg, float xi, float yl, float H, float curl, float mush, float Tb, float vx,
-             vec3 P, vec3 N, float xiMin, float alpha, float t, out float lipLine, out float shade) {
-  lipLine = 0.0; shade = 1.0;
+             vec3 P, vec3 N, float xiMin, float alpha, float t, out float lipLine, out float shade, out float height) {
+  lipLine = 0.0; shade = 1.0; height = 0.0;
   float Hg = smoothstep(0.2, 0.9, H) * alpha;
   if (Hg <= 0.0 || tauU < -0.05) return 0.0;
   float tile = uFoamTune.x;
@@ -64,6 +64,11 @@ float wvFoam(float tauU, float sg, float xi, float yl, float H, float curl, floa
   float boreS = front * (1.0 - smoothstep(WV_SIG_TROUGH, WV_SIG_TROUGH + 0.09, sg));
   // the impact explodes first around the landing lip / trough, then the whole roller is white
   float bore = Ib * boreS * mix(1.0, 0.75 + 0.25 * smoothstep(WV_SIG_LIP - 0.05, WV_SIG_LIP + 0.1, sg), 1.0 - smoothstep(0.7, 0.9, tauU));
+  // impact band: the lip tip, its underside and the landing line are white from the moment it touches down
+  // (hides the crease where the thrown lip meets the face)
+  float impact = smoothstep(0.5, 0.6, tauU) * (1.0 - smoothstep(1.0, 1.3, tauU))
+               * smoothstep(WV_SIG_LIP - 0.06, WV_SIG_LIP - 0.02, sg) * (1.0 - smoothstep(WV_SIG_TROUGH - 0.12, WV_SIG_TROUGH - 0.04, sg));
+  bore = max(bore, impact);
   // trail: deposited behind the crest where the bore passed, decaying in place
   float back = max(-xi, 0.0);
   float tauH = tauU - back / (max(abs(vx), 3.0) * Tb);
@@ -84,20 +89,29 @@ float wvFoam(float tauU, float sg, float xi, float yl, float H, float curl, floa
   vec2 wq = P.xz / tile;                                      // world anchored (trail, carpets)
   vec4 nw = texture(uFoamTex, wq * vec2(0.35, 1.1) + vec2(0.013, 0.004) * t);   // stretched along the travel (x)
   vec4 nf = texture(uFoamTex, wq * 2.7 + vec2(0.31, 0.17));
+  vec4 nc = texture(uFoamTex, wq * 0.21 + vec2(0.71, 0.29));  // coarse: density variation / rafts
 
   float g = uFoamTune.z;
   float nBore = 0.5 * nb.r + 0.35 * nb.g + 0.15 * nf.g;
-  float cBore = wvCov(clamp((bore + spill) * g * 0.95, 0.0, 1.0), nBore, 0.32);
-  float nStreak = 0.55 * (1.0 - nw.a) + 0.25 * nw.b + 0.2 * nf.g;   // webs between the cells: lacy streaks
-  // large-scale patchiness so the lace breaks into drifting rafts instead of a uniform net
-  float fpatch = smoothstep(0.15, 0.75, texture(uFoamTex, wq * 0.21 + vec2(0.71, 0.29)).r * 0.7 + nw.r * 0.3);
-  float cTrail = wvCov(clamp(trail * g * (0.55 + 0.45 * fpatch), 0.0, 1.0), nStreak, 0.25);
-  float cCarpet = wvCov(clamp(carpet * g * 0.5 * fpatch, 0.0, 1.0), nStreak, 0.2) * 0.8;
-  float cLip = clamp((lip * 0.9 + feather * 0.6) * (0.4 + 0.8 * nf.g) * g, 0.0, 1.0);
+  // bore: dense lumpy cover while young; as it ages it thins into connected lace (webs between the cells) that
+  // fades in opacity — never shrinking to isolated flecks
+  float envB = clamp((bore + spill) * g, 0.0, 1.0);
+  float ragged = envB * (0.7 + 0.45 * nc.r + 0.25 * nf.r);         // ragged, feathered outline
+  float dense = wvCov(clamp(ragged * 1.3, 0.0, 1.0), nBore + 0.12, 0.45);   // solid while young, holes only as it thins
+  float laceB = smoothstep(0.35, 0.8, 1.0 - nb.a * 0.8 + 0.25 * nb.g + 0.45 * (nc.g - 0.5) + 0.2 * (nf.r - 0.5));
+  float cBore = max(dense * smoothstep(0.35, 0.75, envB), laceB * smoothstep(0.0, 0.5, envB) * 0.85);
+  // trail / carpets: fixed lace shape, opacity follows the envelope and the coarse rafts
+  float nStreak = 0.55 * (1.0 - nw.a) + 0.25 * nw.b + 0.2 * nf.g;
+  float lace = smoothstep(0.45, 0.8, nStreak);
+  float fpatch = smoothstep(0.15, 0.75, nc.r * 0.7 + nw.r * 0.3);
+  float cTrail = lace * clamp(trail * g * (0.55 + 0.45 * fpatch) * 1.2, 0.0, 1.0);
+  float cCarpet = lace * clamp(carpet * g * 0.45 * fpatch, 0.0, 1.0);
+  float cLip = clamp((lip * 0.9 + feather * 0.6) * (0.5 + 0.7 * nf.g) * g, 0.0, 1.0);
   lipLine = cLip * uFoamTune.w;
   float c = max(max(cBore, cTrail), max(cCarpet, cLip));
-  // brightness relief: lumps bright, the webs between them darker (reads as volume at any distance)
-  float sB = 0.55 + 0.6 * nBore, sT = 0.7 + 0.4 * nStreak;
+  // relief height (0..1): lumps stand up in dense whitewater, lace is flat
+  height = cBore * (0.3 + 0.7 * nBore) * smoothstep(0.3, 0.8, envB) + 0.25 * max(cTrail, cCarpet) * nStreak;
+  float sB = 0.6 + 0.5 * nBore, sT = 0.8 + 0.3 * nStreak;
   shade = c > 0.0 ? (cBore * sB + max(cTrail, cCarpet) * sT + cLip) / max(cBore + max(cTrail, cCarpet) + cLip, 1e-3) : 1.0;
   return clamp(c * Hg, 0.0, 1.0);
 }
