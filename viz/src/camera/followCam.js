@@ -2,89 +2,151 @@
 // function of the sim history and never of the frame rate (deterministic and resumable).
 //
 // Framing (world: waves travel toward -X, crests run along Z; T = along the crest in the ride direction,
-// S = shoreward = -X, Y = up):
-//   ride   a 3/4 view from the shoulder: ahead of the rider along the crest, out in front of the face and above
-//          it, looking back past the rider into the pocket so the curl and the lip are in shot.
-//   tube   low and nearly in line with the tube axis, from the open (shoulder / channel) end, looking into the barrel.
-//   animal (dolphin, seal) slightly lower and closer.
-// Smoothing (spike chase cam, src/surf/SurfDemo.js): ~1 s weighted heading, anchor height τ 0.45 s, pitch τ 0.3 s,
-// ≥ 0.8 m above the water surface under the camera, roll 0.
+// S = shoreward = -X (the face side), Y = up). The camera sits on a sphere around the rider at distance d:
+//   ride   3/4 from the shoulder: azimuth az from T toward S, elevation el; looks back past the rider down the
+//          line into the pocket so the curl and the lip are in shot.
+//   tube   from the channel / shoulder, nearly in line with the tube axis and low, looking into the barrel.
+//   animal (dolphin, seal) lower and closer.
+// d comes from a minimum rider size: rider bounding height ≥ SIZE_MIN of the tile height at the tile's fov.
+// Constraints (desired pose, re-solved every SOLVE_EVERY steps): ≥ minClear above the water surface, shoreward
+// of the crest (never behind the wave relative to the rider), and an unobstructed camera → rider segment (no wave
+// sheet / lip in between): if blocked, swing toward face-on (az ↑) and up (el ↑) until clear.
+// Smoothing (spike chase cam): ride direction from the smoothed rider velocity (~1 s), anchor height τ 0.45 s,
+// pitch τ 0.3 s, roll 0. The smoothed output is lifted (never lowered) if it ends up under the water / in a sheet.
+// After the ride (kick-out, close-out, return) the framing offset freezes; the camera keeps trailing the rider.
 
 export const FOLLOW = {
-  tauHeading: 1.0,      // s, rider heading (decides the ride direction when the break is an A-frame)
+  tauHeading: 1.0,      // s, ride direction (smoothed rider velocity along the crest)
   tauAnchorXZ: 0.2,     // s, rider position (horizontal) the offsets hang from
   tauAnchorY: 0.45,     // s, rider height (spike: camera height τ 0.45)
-  tauOffset: 0.6,       // s, camera offset (blends ride ↔ tube framing and direction flips)
+  tauOffset: 0.6,       // s, camera offset (ride ↔ tube framing, occlusion swings, direction flips)
   tauLook: 0.15,        // s, look-at point
   tauPitch: 0.3,        // s, pitch (spike)
-  minClear: 0.8,        // m above the water under the camera
-  fov: 52,
+  tauFov: 0.5,          // s
+  tauSub: 1.2,          // s, animal submerged ↔ surfaced (porpoising must not pump the camera)
+  minClear: 1.5,        // m above the water surface under the camera
+  sizeMin: 0.16,        // rider bounding height / tile height targeted (≥ 0.12 required)
+  solveEvery: 6,        // steps between constraint solves (20 Hz at DT = 1/120)
 };
 
-const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+/** Bounding height (m) of a rider for the size rule. */
+export const RIDER_HEIGHT = { surfer: 1.7, dolphin: 1.1, seal: 0.9 };
+/** Size-rule height of an animal swimming under the surface (the camera keeps a few metres and aims at the surface). */
+export const SUBMERGED_HEIGHT = 1.0;
 
-/** Desired camera offset (T, S, Y components) and look-at offset for a rider. H = wave face height (m). */
-export function framing(kind, style, H) {
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const RAD = Math.PI / 180;
+
+/** Base framing: { az, el (deg), fov (deg), back (× d, look-at behind the rider), lookUp (m), hR (m) }. */
+export function framing(kind, style, H, sub = 0) {
   const g = clamp(Number.isFinite(H) ? H : 1.5, 0.6, 4);
-  let f;
-  if (style === 'tube') {
-    f = { a: 5 + 2.8 * g, b: 0.9 + 0.55 * g, h: 0.3 + 0.55 * g, back: 2.5 + 1.2 * g, lookUp: 0.45 * g };
-  } else {
-    f = { a: 4 + 1.8 * g, b: 4.5 + 1.6 * g, h: 1.2 + 0.8 * g, back: 1.5 + 1.1 * g, lookUp: 0.3 * g };
-  }
-  if (kind === 'dolphin' || kind === 'seal') { f.a *= 0.72; f.b *= 0.7; f.h *= 0.6; f.back *= 0.8; f.lookUp *= 0.7; }
-  return f;
+  const animal = kind === 'dolphin' || kind === 'seal';
+  let hR = (RIDER_HEIGHT[kind] || 1.5) * (style === 'tube' ? 0.85 : 1);
+  if (animal) hR += (SUBMERGED_HEIGHT - hR) * clamp(sub, 0, 1);
+  if (style === 'tube') return { az: 26, el: 5, fov: 46 + 2 * g, back: 0.12, lookUp: 0.3 * g, hR };
+  if (animal) return { az: 50, el: 9, fov: 44 + 2 * g, back: 0.12, lookUp: 0.15 * g, hR };
+  return { az: 48, el: 11, fov: 40 + 3 * g, back: 0.15, lookUp: 0.25 * g, hR };
 }
+
+/** Distance at which a rider of bounding height hR fills `size` of the frame height at vertical fov (deg). */
+export const distanceFor = (hR, fovDeg, size) => hR / (size * 2 * Math.tan((fovDeg * RAD) / 2));
+
+const RIDING = new Set(['POSITION', 'TAKEOFF', 'RIDE']);
 
 export class FollowCam {
   constructor(opts = {}) { this.o = { ...FOLLOW, ...opts }; this.reset(); }
 
   reset() {
     this.init = false;
-    this.hd = { x: -1, z: 0 };        // smoothed horizontal heading
+    this.n = 0;                       // steps taken
+    this.vz = 0;                      // smoothed rider velocity along the crest (m/s)
     this.sigma = 1;                   // ride direction along +Z (1) or -Z (-1)
     this.anc = { x: 0, y: 0, z: 0 };  // smoothed rider position
+    this.prev = null;                 // previous rider position (velocity)
+    this.want = { x: 0, y: 0, z: 0 }; // desired offset (constraint-solved)
     this.off = { x: 0, y: 0, z: 0 };  // smoothed camera offset
     this.look = { x: 0, y: 0, z: 0 }; // smoothed look-at point
     this.pitch = 0;
-    this.out = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, fov: this.o.fov };
+    this.fov = 45;
+    this.swing = 0;                   // extra azimuth/elevation from the last occlusion solve (0..N)
+    this.sub = 0;                     // smoothed "animal is under water" (0..1, τ tauSub)
+    this.out = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, fov: 45 };
   }
 
   /**
-   * One fixed step. ctx = { pos, fwd, kind, style, H, dir (-1|0|1 peel direction along Z, 0 = unknown),
-   *   surface(x, z) → water height }.
+   * One fixed step. ctx = { pos, fwd, kind, style, state, H, dir (-1|0|1 peel direction along Z, 0 = unknown),
+   *   surface(x, z) → water height, blocked(ax, ay, az, bx, by, bz) → bool (wave sheet between a and b),
+   *   crestX (world x of the crest at the rider's column, or null) }. Animals under the surface get the smaller
+   *   SUBMERGED_HEIGHT for the size rule (smoothed), so a porpoising dolphin is still readable.
    */
   step(dt, ctx) {
-    const o = this.o, P = ctx.pos, F = ctx.fwd || { x: -1, y: 0, z: 0 };
+    const o = this.o, P = ctx.pos;
     const k = (tau) => (this.init ? 1 - Math.exp(-dt / tau) : 1);
+    const riding = ctx.state == null || RIDING.has(ctx.state);
 
-    // heading (1 s) and ride direction
-    const fl = Math.hypot(F.x, F.z);
-    if (fl > 1e-3) {
-      const kh = k(o.tauHeading);
-      this.hd.x += (F.x / fl - this.hd.x) * kh; this.hd.z += (F.z / fl - this.hd.z) * kh;
+    // ride direction: smoothed velocity along the crest, else the peel direction, else the heading
+    if (this.prev && dt > 0) this.vz += ((P.z - this.prev.z) / dt - this.vz) * k(o.tauHeading);
+    this.prev = { x: P.x, y: P.y, z: P.z };
+    if (riding) {
+      if (Math.abs(this.vz) > 3) this.sigma = this.vz < 0 ? -1 : 1;     // hysteresis: a cutback doesn't flip it
+      else if (!this.init) {
+        const F = ctx.fwd;
+        this.sigma = ctx.dir === 1 || ctx.dir === -1 ? ctx.dir : (F && F.z < 0 ? -1 : 1);
+      }
     }
-    if (ctx.dir === 1 || ctx.dir === -1) this.sigma = ctx.dir;
-    else if (!this.init) this.sigma = this.hd.z < 0 ? -1 : 1;
-    else if (Math.abs(this.hd.z) > 0.3 * Math.hypot(this.hd.x, this.hd.z)) this.sigma = this.hd.z < 0 ? -1 : 1;
 
-    // anchor (rider position, smoothed)
-    const kxz = k(o.tauAnchorXZ), ky = k(o.tauAnchorY);
-    this.anc.x += (P.x - this.anc.x) * kxz; this.anc.z += (P.z - this.anc.z) * kxz; this.anc.y += (P.y - this.anc.y) * ky;
+    // anchor (rider position, smoothed); after the ride the offset is frozen but the anchor keeps following, so
+    // the rider (kicking out over the back, paddling away) never runs into or away from the camera
+    {
+      const kxz = k(o.tauAnchorXZ), ky = k(o.tauAnchorY);
+      this.anc.x += (P.x - this.anc.x) * kxz; this.anc.z += (P.z - this.anc.z) * kxz; this.anc.y += (P.y - this.anc.y) * ky;
+    }
 
-    // offset: T = (0, 0, sigma), S = (-1, 0, 0)
-    const f = framing(ctx.kind, ctx.style, ctx.H), s = this.sigma;
-    const ko = k(o.tauOffset);
-    this.off.x += (-f.b - this.off.x) * ko;
-    this.off.y += (f.h - this.off.y) * ko;
-    this.off.z += (s * f.a - this.off.z) * ko;
+    const wr = ctx.surface ? ctx.surface(P.x, P.z) : NaN;
+    const under = Number.isFinite(wr) && P.y < wr - 0.15 ? 1 : 0;
+    this.sub += (under - this.sub) * k(o.tauSub);
+    const f = framing(ctx.kind, ctx.style, ctx.H, this.sub);
+    this.fov += (f.fov - this.fov) * k(o.tauFov);
+    const d = distanceFor(f.hR, f.fov, o.sizeMin);
 
-    // look-at: behind the rider (toward the pocket), a little up the face
+    // constraint solve for the desired offset (every solveEvery steps, and on the first step)
+    if (riding && (this.n % o.solveEvery === 0 || !this.init)) {
+      let best = null;
+      for (let i = 0; i <= 8; i++) {
+        const az = Math.min(88, f.az + 8 * i) * RAD, el = Math.min(40, f.el + 4 * i) * RAD;
+        const ox = -d * Math.cos(el) * Math.sin(az), oz = this.sigma * d * Math.cos(el) * Math.cos(az);
+        const cx = P.x + ox, cz = P.z + oz;
+        let oy = d * Math.sin(el);
+        const w = ctx.surface ? ctx.surface(cx, cz) : 0;
+        if (Number.isFinite(w)) oy = Math.max(oy, w + o.minClear - P.y);
+        const cy = P.y + oy;
+        const behind = ctx.crestX != null && Number.isFinite(ctx.crestX) && cx > Math.min(ctx.crestX - 1.5, P.x + 0.5);
+        // aim the visibility test at the rider's upper body, kept just above the water (animals swim submerged)
+        const ty = Math.max(P.y + 0.5 * f.hR, Number.isFinite(wr) ? wr + 0.4 : P.y);
+        const blk = ctx.blocked ? ctx.blocked(cx, cy, cz, P.x, ty, P.z) : false;
+        best = { x: ox, y: oy, z: oz, i };
+        if (!behind && !blk) break;
+      }
+      this.want.x = best.x; this.want.y = best.y; this.want.z = best.z; this.swing = best.i;
+    }
+    this.n++;
+
+    if (riding || !this.init) {
+      const ko = k(o.tauOffset);
+      this.off.x += (this.want.x - this.off.x) * ko;
+      this.off.y += (this.want.y - this.off.y) * ko;
+      this.off.z += (this.want.z - this.off.z) * ko;
+    }
+
+    // look-at: behind the rider (down the line toward the pocket), a little up the face
     const kl = k(o.tauLook);
-    const lx = P.x, ly = P.y + f.lookUp, lz = P.z - s * f.back;
+    const back = riding ? f.back * d : 0;
+    // (an animal under water: aim at the surface above it, not down into the water)
+    const py = Number.isFinite(wr) ? Math.max(P.y, wr - 0.1) : P.y;
+    const lx = P.x, ly = py + (riding ? f.lookUp : 0.3), lz = P.z - this.sigma * back;
     this.look.x += (lx - this.look.x) * kl; this.look.y += (ly - this.look.y) * kl; this.look.z += (lz - this.look.z) * kl;
 
-    // camera position (clamped above the water, the state stays unclamped like the spike's camY)
+    // camera position: lifted out of the water / sheet if the smoothed pose ended up there
     const cx = this.anc.x + this.off.x, cz = this.anc.z + this.off.z;
     let cy = this.anc.y + this.off.y;
     const w = ctx.surface ? ctx.surface(cx, cz) : 0;
@@ -97,13 +159,14 @@ export class FollowCam {
     this.init = true;
 
     const out = this.out;
-    out.x = cx; out.y = cy; out.z = cz; out.yaw = yaw; out.pitch = this.pitch; out.roll = 0; out.fov = o.fov;
+    out.x = cx; out.y = cy; out.z = cz; out.yaw = yaw; out.pitch = this.pitch; out.roll = 0; out.fov = this.fov;
     return out;
   }
 
   /** Plain snapshot of the full state (tests compare these). */
   snapshot() {
-    return JSON.parse(JSON.stringify({ init: this.init, hd: this.hd, sigma: this.sigma, anc: this.anc, off: this.off,
-      look: this.look, pitch: this.pitch, out: this.out }));
+    return JSON.parse(JSON.stringify({ init: this.init, n: this.n, vz: this.vz, sigma: this.sigma, anc: this.anc,
+      prev: this.prev, want: this.want, off: this.off, look: this.look, pitch: this.pitch, fov: this.fov, swing: this.swing, sub: this.sub,
+      out: this.out }));
   }
 }

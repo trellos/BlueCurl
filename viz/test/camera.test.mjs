@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { DT } from '../src/contracts.js';
 import { FixedClock } from '../src/core/clock.js';
 import { createPipState, pipStep, pipLayout, PIP_ANIM, PIP_DEFAULTS } from '../src/camera/pipPolicy.js';
-import { FollowCam, framing } from '../src/camera/followCam.js';
+import { FollowCam, framing, distanceFor, FOLLOW, RIDER_HEIGHT } from '../src/camera/followCam.js';
 import { widePose, WIDE } from '../src/camera/wide.js';
 
 const cfg = (o = {}) => ({ ...PIP_DEFAULTS, ...o });
@@ -115,6 +115,33 @@ test('maxConcurrent N: tiles stack upward from the corner; extra rides wait; low
   assert.deepEqual(s.tiles.map((x) => x.riderId), [1]);
 });
 
+test('priority: a surfer take-off replaces an animal tile (not a barrelling one)', () => {
+  const prio = (e) => (e.riderId >= 4 ? 1 : 2);            // 4, 5 = animals
+  const run2 = (evs, tEnd) => { let s = createPipState(); for (let k = 1; k <= Math.round(tEnd / DT); k++) {
+    const t = k * DT; s = pipStep(s, evs.filter((e) => e.t > t - DT + 1e-9 && e.t <= t + 1e-9), t, cfg(), () => null, [], prio); } return s; };
+  assert.deepEqual(run2([ev(1, 'takeoff', 4), ev(2, 'takeoff', 1)], 2.5).tiles.map((x) => x.riderId), [1]);
+  assert.deepEqual(run2([ev(1, 'takeoff', 1), ev(2, 'takeoff', 4)], 2.5).tiles.map((x) => x.riderId), [1]);
+  assert.deepEqual(run2([ev(1, 'takeoff', 4), ev(1.5, 'barrel', 4), ev(2, 'takeoff', 1)], 2.5).tiles.map((x) => x.riderId), [4]);
+  assert.deepEqual(run2([ev(1, 'takeoff', 2), ev(2, 'takeoff', 1)], 2.5).tiles.map((x) => x.riderId), [2]);
+});
+
+test('a ride skipped while busy is picked up when the slot frees', () => {
+  const c = cfg({ holdAfterRide: 0.5 });
+  let s = createPipState();
+  const ongoing2 = [{ riderId: 2, frontId: 20, zi: 1, tube: false, since: 1 }];
+  const both = [...ongoing2, { riderId: 3, frontId: 30, zi: 1, tube: false, since: 2 }];
+  const n = Math.round(6 / DT);
+  for (let k = 1; k <= n; k++) {
+    const t = k * DT, due = [ev(1, 'takeoff', 2), ev(2, 'takeoff', 3), ev(3, 'rideEnd', 2)].filter((e) => e.t > t - DT + 1e-9 && e.t <= t + 1e-9);
+    s = pipStep(s, due, t, c, () => null, t < 1 ? [] : t < 2 ? ongoing2 : t <= 3 ? both : both.slice(1));
+    if (Math.abs(t - 2.5) < DT / 2) assert.deepEqual(s.tiles.map((x) => x.riderId), [2]);
+    if (Math.abs(t - 3.6) < DT / 2) assert.deepEqual(s.tiles.map((x) => x.riderId), [3]);
+  }
+  // small ongoing rides are not picked up
+  const s2 = pipStep(createPipState(), [], 1, cfg({ minHeight: 2 }), () => 1, ongoing2);
+  assert.equal(s2.tiles.length, 0);
+});
+
 test('policy is a pure function (same inputs → same state; input state untouched)', () => {
   const evs = [ev(1, 'takeoff', 2), ev(2, 'barrel', 3), ev(3, 'rideEnd', 3)];
   const a = run(evs, 6), b = run(evs, 6);
@@ -163,9 +190,34 @@ test('follow cam: stays ≥ 0.8 m above the water, roll 0, frames the rider from
       assert.ok((dx * vx + dz * vz) / Math.hypot(dx, dz) > Math.cos((35 * Math.PI) / 180));
     }
   });
-  assert.ok(minClear >= 0.8 - 1e-9, `clearance ${minClear}`);
+  assert.ok(minClear >= FOLLOW.minClear - 1e-9, `clearance ${minClear}`);
   const s = framing('surfer', 'carve', 2), d = framing('dolphin', 'carve', 2);
-  assert.ok(d.h < s.h && d.a < s.a && d.b < s.b, 'animals: lower and closer');
+  assert.ok(d.el < s.el && distanceFor(d.hR, d.fov, 0.16) < distanceFor(s.hR, s.fov, 0.16), 'animals: lower and closer');
+});
+
+test('follow cam: rider fills ≥ 12 % of the tile height at the chosen distance and fov', () => {
+  for (const kind of ['surfer', 'dolphin', 'seal']) for (const style of ['carve', 'tube', 'porpoise']) for (const H of [0.6, 1.5, 3, 5]) {
+    const f = framing(kind, style, H), d = distanceFor(f.hR, f.fov, FOLLOW.sizeMin);
+    const frac = RIDER_HEIGHT[kind] * (style === 'tube' ? 0.85 : 1) / (2 * d * Math.tan((f.fov * Math.PI) / 360));
+    assert.ok(frac >= 0.12, `${kind} ${style} H${H}: ${frac}`);
+  }
+});
+
+test('follow cam: swings out of a blocked line of sight and never sits behind the crest', () => {
+  const clock = new FixedClock(DT), fc = new FollowCam();
+  // a shoulder blocking any low view along the crest (> 5 m from the rider, below y = 3); crest at x = 80
+  const blocked = (ax, ay, az, bx, by, bz) => { for (let i = 1; i < 8; i++) { const s = i / 8, y = ay + (by - ay) * s, z = az + (bz - az) * s; if (y < 3 && Math.abs(z - bz) > 5) return true; } return false; };
+  let swings = 0;
+  clock.advance(3, (t, dt) => {
+    const r = { pos: { x: 76, y: 1, z: 10 * t }, fwd: { x: 0, y: 0, z: 1 }, kind: 'surfer', style: 'carve', state: 'RIDE', H: 2, dir: 1 };
+    const o = fc.step(dt, { ...r, surface: () => 0, blocked, crestX: 80 });
+    swings = Math.max(swings, fc.swing);
+    if (t > 2.2) {
+      assert.ok(o.x < 80 - 1.5, 'shoreward of the crest');
+      assert.ok(!blocked(o.x, o.y, o.z, r.pos.x, r.pos.y + 0.85, r.pos.z), 'clear line of sight once settled');
+    }
+  });
+  assert.ok(swings > 0, 'the solve had to swing');
 });
 
 test('wide pose: drift is a small pure function of t', () => {

@@ -8,8 +8,13 @@
 //   barrel   (cfg.onBarrel)  → mark the rider's tile as barrelling, or open a tile; when busy it SWITCHES: replaces
 //                              a holding tile, else the oldest tile that is not barrelling itself.
 //   rideEnd                  → the rider's tile holds for cfg.holdAfterRide s, then animates out.
+//   priority                 → priorityOf(ev) (surfers 2, animals 1): a takeoff may also replace a riding tile of
+//                              LOWER priority that is not barrelling (a surfer's ride beats a porpoising dolphin).
 //   cfg.minHeight            → takeoff/barrel events whose ride (ZoneBreak H, via heightOf(ev)) is smaller are ignored.
 //   cfg.enabled = false      → every tile animates out.  cfg.maxConcurrent = N tiles (stacked away from the corner).
+//   ongoing                  → rides still in progress ([{ riderId, frontId, zi, tube, since }]): when a slot is free
+//                              after the events, the best one not on screen is picked up (barrel first, then the
+//                              earliest take-off), subject to the same trigger switches and minHeight.
 //
 // Tile { key, slot, riderId, frontId, zi, startedAt, endAt (null while riding), barrel, cut }
 //   key   unique per tile (a switch gives the slot a new key → the follow cam restarts)
@@ -27,7 +32,7 @@ export function createPipState() { return { tiles: [], leaving: [], serial: 0 };
 
 const lowestFreeSlot = (tiles) => { let s = 0; while (tiles.some((x) => x.slot === s)) s++; return s; };
 
-export function pipStep(prev, events, t, pipCfg = {}, heightOf = () => null) {
+export function pipStep(prev, events, t, pipCfg = {}, heightOf = () => null, ongoing = [], priorityOf = () => 0) {
   const c = { ...PIP_DEFAULTS, ...(pipCfg || {}) };
   const s = {
     tiles: prev.tiles.map((x) => ({ ...x })),
@@ -41,7 +46,7 @@ export function pipStep(prev, events, t, pipCfg = {}, heightOf = () => null) {
   };
   const add = (ev, slot, cut = false) => {
     const tile = { key: ++s.serial, slot, riderId: ev.riderId, frontId: ev.frontId ?? null, zi: ev.zi ?? -1,
-      startedAt: t, endAt: null, barrel: ev.type === 'barrel', cut };
+      startedAt: t, endAt: null, barrel: ev.type === 'barrel', cut, prio: priorityOf(ev) || 0 };
     s.tiles.push(tile);
     return tile;
   };
@@ -77,10 +82,28 @@ export function pipStep(prev, events, t, pipCfg = {}, heightOf = () => null) {
     if (!victim && ev.type === 'barrel') {
       victim = s.tiles.filter((x) => !x.barrel).sort((a, b) => a.startedAt - b.startedAt || a.key - b.key)[0];
     }
+    if (!victim && ev.type === 'takeoff') {
+      const p = priorityOf(ev) || 0;
+      victim = s.tiles.filter((x) => !x.barrel && (x.prio || 0) < p).sort((a, b) => (a.prio || 0) - (b.prio || 0) || a.startedAt - b.startedAt || a.key - b.key)[0];
+    }
     if (!victim) continue;
     const slot = victim.slot;
     remove(victim, true);
     add(ev, slot, true);
+  }
+
+  // free slots: pick up a ride that is still going (e.g. skipped while the slot was busy)
+  if (maxN > 0 && s.tiles.length < maxN && ongoing && ongoing.length) {
+    const cands = ongoing.filter((r) => r && r.riderId != null && !s.tiles.some((x) => x.riderId === r.riderId)
+      && !s.leaving.some((x) => x.riderId === r.riderId && x.leftAt === t)
+      && (r.tube ? (c.onBarrel || c.onTakeoff) : c.onTakeoff)
+      && !(Number.isFinite(heightOf(r)) && heightOf(r) < c.minHeight))
+      .sort((a, b) => (b.tube ? 1 : 0) - (a.tube ? 1 : 0) || (priorityOf(b) || 0) - (priorityOf(a) || 0)
+        || (a.since ?? 0) - (b.since ?? 0) || a.riderId - b.riderId);
+    for (const r of cands) {
+      if (s.tiles.length >= maxN) break;
+      add({ type: r.tube ? 'barrel' : 'takeoff', riderId: r.riderId, frontId: r.frontId, zi: r.zi }, lowestFreeSlot(s.tiles));
+    }
   }
   return s;
 }
