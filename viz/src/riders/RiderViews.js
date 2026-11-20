@@ -15,6 +15,7 @@ import { SurferModel, surferPose, blendPose } from './models/surfer.js';
 import { DolphinModel, dolphinPose } from './models/dolphin.js';
 import { SealModel, sealPose } from './models/seal.js';
 import { Wake, wakeUniforms } from './models/wake.js';
+import { surfaceHeight } from '../wave/field.js';
 
 export const DEFAULT_RIDER_SCALE = 1.4;
 const XFADE = 0.3;
@@ -23,7 +24,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const smooth = (a, b, x) => { const s = clamp((x - a) / (b - a), 0, 1); return s * s * (3 - 2 * s); };
 const lerpObj = (a, b, k) => { const o = {}; for (const key in b) o[key] = typeof b[key] === 'number' && typeof a[key] === 'number' ? a[key] + (b[key] - a[key]) * k : b[key]; return o; };
 
-const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3(), _p = new THREE.Vector3();
+const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
 
 /** Rider frame matrix: x = fwd, y = up (orthogonalised), z = fwd × up; scaled by s; origin pos. */
 export function riderFrame(r, s, out = new THREE.Matrix4()) {
@@ -143,6 +144,31 @@ export class RiderViews {
     return (age, out) => out.set(r.pos.x - v.x * age, r.pos.y - vy * age, r.pos.z - v.z * age);
   }
 
+  /**
+   * Animals: pos may be the water line (stub / fake drivers) or the body itself, already offset by the sim (WP6a:
+   * submerged swimming, leaps). Airborne (pos clearly above the sea surface) → the body sits on pos and follows the
+   * trajectory; otherwise the body centre goes to min(pos.y, surface − pose depth), so the sim's depth wins when it
+   * is deeper and the pose's waterline (dorsal fin / head out) applies at the surface.
+   */
+  _surface(r, t) {
+    let w = r.pos.y;
+    try { w = surfaceHeight(this.app.swell?.fronts || [], r.pos.x, r.pos.z, t); } catch { /* keep pos.y */ }
+    return Number.isFinite(w) ? w : r.pos.y;
+  }
+
+  _waterline(r, a, t, scale) {
+    const w = this._surface(r, t);
+    const above = r.pos.y - w;
+    if (above > 0.08) {
+      a.depth = 0;
+      // the sim's fwd may already follow the arc: then don't pitch twice
+      a.pitch *= 1 - smooth(0.15, 0.45, Math.abs(r.fwd?.y ?? 0));
+    } else {
+      const centre = Math.min(r.pos.y, w - a.depth * scale);
+      a.depth = (r.pos.y - centre) / scale;
+    }
+  }
+
   reset() {}
 
   update(t) {
@@ -161,10 +187,8 @@ export class RiderViews {
       seen.add(r.id);
       const a = evalPose(e.kind, r, t);
       const F = riderFrame(r, scale, this._frame);
-      if (e.kind !== 'surfer' && (r.action === 'jump' || r.action === 'kickout')) {
-        // the sim's fwd may already follow the arc: then don't pitch twice
-        a.pitch *= 1 - smooth(0.15, 0.45, Math.abs(r.fwd?.y ?? 0));
-      }
+      if (e.kind !== 'surfer') this._waterline(r, a, t, scale);
+      else if (a.board.lift > 0 && this._surface(r, t) < r.pos.y - 0.08) a.board.lift = 0;   // the sim already hops
       e.model.apply(F, a);
       e.model.group.visible = true;
       const goofy = e.kind === 'surfer' && e.model.look?.goofy;
@@ -177,7 +201,6 @@ export class RiderViews {
     for (const [id, e] of this.models) {
       if (!seen.has(id)) e.model.group.visible = e.wake.ribbon.visible = e.wake.spray.visible = false;
     }
-    void _p;
   }
 
   dispose() {

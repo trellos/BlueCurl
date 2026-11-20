@@ -83,17 +83,16 @@ export function sealPose(action, state, s, t, seed, speed = 0) {
     if (action === 'bottomTurn') o.roll = 0.6 * Math.sin(Math.PI * s);
     if (action === 'cutback') o.roll = -0.8 * Math.sin(Math.PI * s);
     if (action === 'lipHit') { o.pitch = 0.4 * Math.sin(Math.PI * s); o.roll = 2 * Math.PI * smooth(0.2, 0.8, s); }
+  } else if (action === 'roll') {                         // lazy barrel roll at the surface
+    o.depth = 0.1; o.pitch = 0.05; o.roll = 2 * Math.PI * smooth(0.1, 0.9, s); o.beat = 0.15; o.freq = 0.6; o.flip = 0.5;
+    o.headUp = 0.1;
   } else if (action === 'swim' || action === 'paddle') {
     o.depth = 0.12; o.beat = 0.38; o.freq = 1.3; o.headUp = 0.35; o.pitch = 0.06; o.flip = 0.05;
-  } else {                                                   // idle: bottling (head up) with a lazy roll now and then
-    const cyc = ((ph / 13) % 1 + 1) % 1;
-    const r = smooth(0.0, 0.08, cyc) * (1 - smooth(0.26, 0.34, cyc));   // 0 bottling → 1 rolling at the surface
-    const rollS = smooth(0.06, 0.28, cyc);
-    o.pitch = lerp(1.2 + 0.06 * Math.sin(ph * 0.9), 0.05, r);
-    o.depth = lerp(0.36 + 0.04 * Math.sin(ph * 1.1), 0.1, r);
-    o.roll = 2 * Math.PI * rollS * (r > 0.001 ? 1 : 0) + 0.12 * Math.sin(ph * 0.4) * (1 - r);
-    o.beat = lerp(0.08, 0.15, r); o.freq = 0.5; o.flip = lerp(0.6, 0.3, r); o.scull = lerp(0.5, 0.1, r);
-    o.headUp = lerp(-0.25, 0.1, r);
+  } else {                                                   // idle: bottling, head up, sculling
+    o.pitch = 1.2 + 0.06 * Math.sin(ph * 0.9);
+    o.depth = 0.36 + 0.04 * Math.sin(ph * 1.1);
+    o.roll = 0.12 * Math.sin(ph * 0.4); o.yaw = 0.3 * Math.sin(ph * 0.23);
+    o.beat = 0.08; o.freq = 0.5; o.flip = 0.6; o.scull = 0.5; o.headUp = -0.25;
   }
   return o;
 }

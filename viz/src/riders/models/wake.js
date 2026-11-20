@@ -177,7 +177,7 @@ export class Wake {
       S[3 * j] = _p.x + vx * age; S[3 * j + 1] = _p.y + 0.1 + vy * age - 0.5 * g * age * age; S[3 * j + 2] = _p.z + vz * age;
       const a01 = age / SPRAY_LIFE;
       const k = burst ? o.burst : o.spray;
-      A[2 * j] = (0.05 + 0.13 * h4) * sc * (1 + 1.6 * a01);
+      A[2 * j] = (0.03 + 0.08 * h4) * sc * (1 + 1.2 * a01);
       A[2 * j + 1] = k * (1 - a01) * (1 - a01) * (S[3 * j + 1] < _p.y - 0.2 ? 0 : 0.9);
     }
     this.spray.geometry.attributes.position.needsUpdate = true;
