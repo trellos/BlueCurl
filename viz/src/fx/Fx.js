@@ -1,11 +1,12 @@
 // BlueCurl Swell — input feedback FX (WP5): lane-coloured impact flash + rings + crest streak, analytic sparkles, light
 // on the water along every charged front (+ horizon pre-charge band), decorative dolphin jumps. Reads app.swell.
+// WP13: a massive splash + escaping bird per note, bird flocks from riders' 'flock' events (Splash.js, Birds.js, birdMath.js).
 //
 // Visual state is a pure function of (swell state, t): every effect is evaluated from the impulse's age
 // (t − imp.t) and seeded by its id. The only cache is per-impulse constants (keyed by id, pruned with the ring).
 // Effects ride with the front they hit (anchor x = the front's current crest x), so they stay on the swell.
 import * as THREE from 'three';
-import { NCOLS, uToZ, localTau, DEFAULT_CFG } from '../contracts.js';
+import { NCOLS, uToZ, localTau, DEFAULT_CFG, ambientHeight } from '../contracts.js';
 import { surfaceHeight, lip } from '../wave/field.js';
 import { depthAt } from '../spot/bathymetry.js';
 import {
@@ -16,6 +17,10 @@ import { Sprites, SHAPE_GLOW, SHAPE_RING, SHAPE_STREAK, MODE_BILLBOARD, MODE_AXI
 import { Particles } from './Particles.js';
 import { Shimmer, RIB_PTS } from './Shimmer.js';
 import { Dolphins } from './Dolphins.js';
+import { Splash } from './Splash.js';
+import { Birds } from './Birds.js';
+import { BirthLog } from './birdMath.js';
+import { SPLASH } from './splashMath.js';
 
 const SURF_EXACT_MAX = 3;          // impacts per frame that use the exact surfaceHeight (the rest: crest via lip())
 const SURF_EXACT_AGE = 0.5;        // s
@@ -35,7 +40,11 @@ export class Fx {
     this.particles = new Particles();
     this.shimmer = new Shimmer();
     this.dolphins = new Dolphins(6);
-    this.group.add(this.shimmer.mesh, this.sprites.mesh, this.particles.mesh, this.dolphins.group);
+    this.splash = new Splash();       // WP13: massive note splash
+    this.birds = new Birds();         // WP13: note birds + flocks
+    this.births = new BirthLog();     // sim-derived splash/bird births (recorded in step)
+    this.group.add(this.shimmer.mesh, this.splash.mesh, this.sprites.mesh, this.particles.mesh, this.dolphins.group,
+      this.birds.mesh, this.birds.trail);
     app.scene?.add(this.group);
     this._cache = new Map();          // impulse id → per-impulse constants
     this._byId = new Map();
@@ -43,11 +52,14 @@ export class Fx {
     this._tmp = { core: new Float32Array(RIB_PTS), halo: new Float32Array(RIB_PTS), hw: new Float32Array(RIB_PTS),
       px: new Float32Array(RIB_PTS), th: new Float32Array(RIB_PTS), dn: new Float32Array(RIB_PTS), x: new Float64Array(RIB_PTS), y: new Float64Array(RIB_PTS), c: new Float32Array(RIB_PTS * 3) };
     this._size = new THREE.Vector2();
-    this.stats = { impulses: 0, emitters: 0, sprites: 0, ribbons: 0, dolphins: 0 };
+    this.stats = { impulses: 0, emitters: 0, sprites: 0, ribbons: 0, dolphins: 0, splashes: 0, birds: 0 };
   }
 
-  step(t, dt) {}
-  reset() { this._cache.clear(); this._fcol.clear(); }
+  /** Per sim step: record new impulses / riders 'flock' events as splash + bird births (sim-derived, replayable). */
+  step(t, dt) {
+    this.births.step(t, this.app.swell, this.app.riders, this.app.cfg, this.app.sunDir);
+  }
+  reset() { this._cache.clear(); this._fcol.clear(); this.births.reset(); }
 
   _const(imp) {
     let c = this._cache.get(imp.id);
@@ -111,8 +123,32 @@ export class Fx {
     for (const id of this._fcol.keys()) if (!alive.has(id)) this._fcol.delete(id);
 
     const pxm = this._pxm();
+    this._splashesAndBirds(t, pxm);
     S.end(pxm); P.end(t, pxm); R.end(t, pxm); D.end();
-    this.stats = { impulses: nImp, emitters: P.n, sprites: S.n, ribbons: R.n, dolphins: D.n };
+    this.stats = { impulses: nImp, emitters: P.n, sprites: S.n, ribbons: R.n, dolphins: D.n, splashes: this.splash.n, birds: this.birds.n };
+  }
+
+  /** WP13: splashes (newest win the slots) and birds (≤ cfg.birds.max, oldest culled) from the birth log. */
+  _splashesAndBirds(t, pxm) {
+    const cfg = this.app.cfg || DEFAULT_CFG, sun = this.app.sunDir;
+    const SP = this.splash, B = this.birds, list = this.births.list;
+    SP.begin(); B.begin();
+    for (let b = list.length - 1; b >= 0; b--) {
+      const br = list[b], age = t - br.t0;
+      if (age < 0 || age > SPLASH.life) continue;
+      let y = 0;
+      try { y = ambientHeight(br.sp.x, br.sp.z, t, cfg.ambient || DEFAULT_CFG.ambient); } catch {}
+      if (!Number.isFinite(y)) y = 0;
+      const seed = ((br.key % 1000003) * 31 + (cfg.seed ?? 1) * 7 + (br.kind === 'flock' ? 5 : 0)) % 16777213;
+      SP.add(br.sp, y, seed, br.col, br.kind === 'note' ? 1 : 0.4);
+      // a flock bursts out of its rider in a shower of gold sparkles
+      if (br.kind === 'flock' && age < 2.5) {
+        this.particles.add(br.sp.x, y + 1.5, br.sp.z, br.t0, 1.1, (seed % 65536) * 4 + 3, KIND_BURST, emitterCount(KIND_BURST, 1.1), br.col, 0.5);
+      }
+    }
+    const max = Math.max(0, cfg.birds?.max ?? DEFAULT_CFG.birds.max);
+    this.births.forBirds(t, max, (bp, age) => B.add(bp, age));
+    SP.end(t, pxm, sun); B.end(pxm, sun);
   }
 
   _impact(imp, c, age, ax, ay, az, f) {
@@ -242,5 +278,6 @@ export class Fx {
   dispose() {
     this.app.scene?.remove(this.group);
     this.sprites.dispose(); this.particles.dispose(); this.shimmer.dispose(); this.dolphins.dispose();
+    this.splash.dispose(); this.birds.dispose();
   }
 }
