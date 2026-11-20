@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DT, DEFAULT_CFG } from '../src/contracts.js';
-import { splashParams, splashBoost, jetTop, jetApexT, SPLASH } from '../src/fx/splashMath.js';
+import { splashParams, splashBoost, splashX, SPLASH_X, jetTop, jetApexT, SPLASH } from '../src/fx/splashMath.js';
 import { BirthLog, birdPos, birdPose, birdAlpha, flapAmp, BIRD } from '../src/fx/birdMath.js';
 
 const cfg = (o = {}) => ({ ...structuredClone(DEFAULT_CFG), ...o });
@@ -18,7 +18,7 @@ function run(log, t0, t1, src, c = cfg()) {
 test('splash: bigger for stronger notes, far splashes boosted, jet rises to H and falls back', () => {
   const soft = splashParams(200, 0, 0, 0.4), hard = splashParams(200, 0, 0, 1);
   assert.ok(hard.H > soft.H && hard.S > soft.S);
-  assert.ok(hard.H / hard.boost >= 12 && hard.H / hard.boost <= 16, 'full note ≈ 14 m before the distance boost');
+  assert.ok(hard.H / hard.boost >= 14 && hard.H / hard.boost <= 20, "full note ≈ 18 m before the distance boost");
   assert.ok(splashBoost(500, 0) > splashBoost(150, 0) && splashBoost(30, 60) === 1);
   assert.ok(splashBoost(5000, 0) <= SPLASH.boostMax);
   const far = splashParams(5000, 0, 0, 1);
@@ -138,4 +138,15 @@ test('bird cap: ≤ cfg.birds.max live birds, oldest births culled first', () =>
   assert.equal(n, 20);
   const newest = L.list.filter((b) => 6 - b.t0 >= b.birds[0].t0).slice(-20).map((b) => b.key).reverse();   // emerged ones
   assert.deepEqual(seen, newest);
+});
+
+test('splash placement: in the lineup band, deterministic per impulse, nearest the front side', () => {
+  for (const fx of [600, 450, 200, 90, NaN]) for (let id = 1; id < 40; id++) {
+    const x = splashX(fx, id, 1);
+    assert.ok(x >= SPLASH_X[0] && x <= SPLASH_X[1]);
+    assert.equal(x, splashX(fx, id, 1));
+  }
+  let far = 0, near = 0;
+  for (let id = 1; id < 200; id++) { far += splashX(600, id); near += splashX(90, id); }
+  assert.ok(far / 199 > 200 && near / 199 < 140);
 });

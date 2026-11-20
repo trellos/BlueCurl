@@ -170,10 +170,12 @@ void main() {
   float mu = dot(V, normalize(uSunDir));
   float g = 0.6;
   float hg = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * mu, 1.5);   // 0.25 … 16 (×4π normalised)
+  hg = min(hg, 3.0);                                   // no white blow-out in the sun-glare column
+  float glare = smoothstep(0.93, 0.995, mu);           // looking straight into the sun: tone the body down
   vec3 amb = vec3(1.0, 0.95, 0.9);                     // warm dawn sky on white water
   vec3 sunC = vec3(1.0, 0.72, 0.45);
   float thin = mode == 1 ? 1.0 : (k < 280 ? 0.6 : 0.9); // jet blobs are thick: less light through
-  vec3 col = amb * (1.3 * bright) + sunC * hg * 0.12 * thin;
+  vec3 col = amb * (1.3 * bright * (1.0 - 0.3 * glare)) + sunC * hg * 0.12 * thin;
   vec3 rim = sunC * hg * 0.45 * thin;
   if (k >= 448 && k < 496) { col = amb * 1.0 + sunC * hg * 0.4; rim = vec3(0.0); } // mist: scattered sunlight
   if (mode == 1) { col += sunC * hg * 0.2; rim = vec3(0.0); }

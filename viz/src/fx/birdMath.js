@@ -5,7 +5,7 @@
 // same steps on a replay / ?t0 fast-forward) and every bird is a closed-form function of (birth, age): no dt
 // integration, no Math.random. Live birds are capped at cfg.birds.max, oldest births culled first.
 import { hash01, DT, DEFAULT_CFG } from '../contracts.js';
-import { splashParams, jetTop, SPLASH } from './splashMath.js';
+import { splashParams, splashX, jetTop, SPLASH } from './splashMath.js';
 import { laneColor, clamp, clamp01, lerp, smoothstep } from './fxMath.js';
 
 export const BIRD = {
@@ -183,7 +183,10 @@ export class BirthLog {
       // dense playing: later splashes in a run get smaller (≥ 50 %), so fast notes don't build a white wall
       let recent = 0;
       for (let q = this.list.length - 1; q >= 0 && imp.t - this.list[q].t0 < 1.5; q--) if (this.list[q].kind === 'note') recent++;
-      const sp = splashParams(imp.x, imp.z, imp.t, imp.strength, 1, Math.max(0.5, 1 / (1 + 0.15 * recent)));
+      // the splash erupts IN the lineup (reads big and close from the wide camera), on the lane's crest z, nearest the
+      // front's side; the flash/glow stays on the front where the note landed (Fx._impact)
+      const sx = splashX(imp.x, imp.id, seed);
+      const sp = splashParams(sx, imp.z, imp.t, imp.strength, 1, Math.max(0.5, 1 / (1 + 0.15 * recent)));
       const u = Number.isFinite(imp.u) ? imp.u : 0.5;
       const n = Math.max(0, Math.min(8, Math.round(bc.perNote ?? 1)));
       const birds = [];

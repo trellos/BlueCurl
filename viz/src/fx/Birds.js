@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { PREMULT } from './Sprites.js';
 import { birdPose, birdPos } from './birdMath.js';
 
+const smoothstep01 = (x) => { const s = Math.min(1, Math.max(0, x)); return s * s * (3 - 2 * s); };
 export const MAX_BIRDS = 128;
 export const TRAIL_PTS = 9;          // samples per trail (8 segments)
 export const TRAIL_DT = 0.075;       // s between trail samples
@@ -227,10 +228,12 @@ export class Birds {
     const pts = this._pts, col = bp.col;
     for (let k = 0; k < TRAIL_PTS; k++) birdPos(bp, Math.max(bp.t0, a - k * TRAIL_DT), pts[k]);
     const A = p.alpha;
+    // no trail on the vertical climb out of the splash (it read as a cross): fades in once the bird levels off
+    const T = A * smoothstep01((a - bp.t0 - 1.2) / 1.4);
     // halo at the bird (the note's light)
     this._seg(pts[0], pts[0], 1, bp.span * 0.35, 6, col, 1.2 * A, 1.2 * A);
     for (let k = 0; k < TRAIL_PTS - 1; k++) {
-      const a0 = A * Math.pow(1 - k / (TRAIL_PTS - 1), 1.6), a1 = A * Math.pow(1 - (k + 1) / (TRAIL_PTS - 1), 1.6);
+      const a0 = T * Math.pow(1 - k / (TRAIL_PTS - 1), 1.6), a1 = T * Math.pow(1 - (k + 1) / (TRAIL_PTS - 1), 1.6);
       this._seg(pts[k], pts[k + 1], 0, 0.22 * bp.span * (1 - 0.6 * k / TRAIL_PTS), 2.2, col, 2.6 * a0, 2.6 * a1);
     }
   }
