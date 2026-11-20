@@ -26,8 +26,8 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
  *  then popDur to stand (≤ ~1 s from the catch to standing); depth: how deep an animal swims inside the face. */
 export const KIND_PLAN = {
   surfer:  { glide: 9,  back: 6,  paddle: 0.5,  tauPop: -0.35, popDur: 0.45, depth: 0 },
-  dolphin: { glide: 16, back: 10, paddle: 0.35, tauPop: -0.30, popDur: 0.35, depth: 0.45 },
-  seal:    { glide: 8,  back: 5,  paddle: 0.45, tauPop: -0.30, popDur: 0.40, depth: 0.2 },
+  dolphin: { glide: 16, back: 10, paddle: 0.35, tauPop: -0.30, popDur: 0.35, depth: 0.12 },   // back + fin out
+  seal:    { glide: 8,  back: 5,  paddle: 0.45, tauPop: -0.30, popDur: 0.40, depth: 0.06 },   // head + back out
 };
 
 /** Planned ride length (s after the pop): [base, jitter]. Long on purpose: the peel end normally ends the ride. */
@@ -161,17 +161,16 @@ export function buildPlan({ wf, kind, style, seed, tC, sC, hC, tauBias = 0 }) {
     }
   } else if (style === 'porpoise') {
     add(-0.3 + j(0.05), 0.2, 'swim', 0.8 + j(0.1));
-    while (tk < tEnd + 2) {
-      add(-0.48 + j(0.08), 0.62 + j(0.08), 'jump', 1.0 + j(0.15)); leap(1.3 + 0.25 * zb.H + j(0.3));
-      add(-0.35 + j(0.08), 0.28 + j(0.08), 'swim', 0.9 + j(0.2));
-      add(-0.55 + j(0.08), 0.5 + j(0.08), 'swim', 0.8 + j(0.2));
+    while (tk < tEnd + 2) {                                   // a leap out of the face every ~1.6–2.3 s
+      add(-0.48 + j(0.08), 0.62 + j(0.08), 'jump', 0.95 + j(0.1)); leap(1.3 + 0.25 * zb.H + j(0.3));
+      add(-0.38 + j(0.08), 0.3 + j(0.1), 'swim', 0.95 + j(0.3));
     }
   } else {                                                    // breach (seals): bodysurf low with breaches / rolls
     add(-0.3 + j(0.05), 0.18, 'swim', 1.0 + j(0.1));
     let n = 0;
     while (tk < tEnd + 2) {
-      add(-0.42 + j(0.06), 0.3 + j(0.06), 'swim', 1.2 + j(0.25));
-      if (n++ % 2 === 0) { add(-0.38 + j(0.05), 0.42, 'jump', 0.8 + j(0.1)); leap(0.9 + j(0.25)); }
+      add(-0.42 + j(0.06), 0.3 + j(0.06), 'swim', 1.1 + j(0.25));
+      if (n++ % 3 !== 1) { add(-0.38 + j(0.05), 0.42, 'jump', 0.8 + j(0.1)); leap(0.9 + j(0.25)); }
       else add(-0.36 + j(0.05), 0.24, 'roll', 1.0 + j(0.1));
     }
   }

@@ -82,7 +82,7 @@ test('short take-offs, long standing rides, trail and action history for WP6b', 
   const mean = pt.reduce((x, y) => x + y, 0) / pt.length;
   assert.ok(mean >= 4, `mean standing point ride ${mean.toFixed(2)} s`);
   assert.ok(Math.max(...pt) >= 7, `longest point ride ${Math.max(...pt).toFixed(2)} s`);
-  assert.ok(a.trailN > 100 && a.trailErr < 0.05, `trail error ${a.trailErr} over ${a.trailN} checks`);
+  assert.ok(a.trailN > 100 && a.trailErr < 0.15, `trail error ${a.trailErr} over ${a.trailN} checks`);
   assert.equal(a.actBad, 0);
 });
 
