@@ -1,9 +1,12 @@
 // BlueCurl Swell — wide default view (WP7): elevated on the headland, the whole lineup (outer reef, point,
 // inside) with the swell rolling in from the horizon and the sunrise (az 108°, el 6°) in frame. The
 // bottom-right third (PiP corner) falls on the headland / near water, not on the lineup.
-// Drift: a very slow, sub-metre float, a pure function of t (no state).
+// The pose is WP2's SPOT_CAMERAS.default (src/spot/layout.js): the spot layout keeps palms/rocks out of its sight
+// lines to the zones. Drift: a very slow, ~1 m float (≈0.3° at the point), a pure function of t (no state).
+import { SPOT_CAMERAS } from '../spot/layout.js';
 
-export const WIDE = { position: [-30, 70, 105], target: [160, 0, -25], fov: 56 };
+const S = SPOT_CAMERAS.default;
+export const WIDE = { position: [...S.pos], target: [...S.target], fov: S.fov };
 
 const TAU = 2 * Math.PI;
 
