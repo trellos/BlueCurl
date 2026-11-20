@@ -6,7 +6,7 @@ export function createRimUniforms(sunDir) {
   return {
     uSunDir: { value: sunDir.clone().normalize() },
     uRimColor: { value: new THREE.Color(0xffb46a) },
-    uRimStrength: { value: 1.6 },
+    uRimStrength: { value: 1.0 },
   };
 }
 

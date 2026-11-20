@@ -71,23 +71,30 @@ export class Spot {
     };
     this.triangles.total = Object.values(this.triangles).reduce((a, b) => a + b, 0);
 
-    // --- lights: low warm sun (shadow-casting, map rendered once: the spot is static) + sky/ground fill
-    const sun = new THREE.DirectionalLight(0xffc68a, 3.0);
+    // --- lights. In the app WP1 already owns a sun DirectionalLight (app.sunLight) and an IBL environment:
+    // reuse that light (only enable + aim its shadow) so the sun is not doubled; add a cool hemisphere fill.
+    // Standalone (dev page) the spot brings its own warm low sun + sky/ground hemisphere fill.
+    const ownSun = !(app.sunLight && app.sunLight.isDirectionalLight);
+    const sun = ownSun ? new THREE.DirectionalLight(0xffc68a, 3.0) : app.sunLight;
     const focus = new THREE.Vector3(60, 0, 20);
     sun.position.copy(focus).addScaledVector(sunDir, 900);
     sun.target.position.copy(focus);
+    sun.target.updateMatrixWorld();
     sun.castShadow = true;
-    const sc = sun.shadow.camera;
+    const sc = sun.shadow.camera;              // ortho box around the headland + bay (sun ~6° up: long shadows)
     sc.left = -340; sc.right = 340; sc.top = 110; sc.bottom = -110; sc.near = 300; sc.far = 1700;
+    sc.updateProjectionMatrix();
     sun.shadow.mapSize.set(4096, 2048);
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 0.6;
-    sun.shadow.autoUpdate = false;
+    sun.shadow.autoUpdate = false;             // the spot is static: render the shadow map once
     sun.shadow.needsUpdate = true;
     this.sun = sun;
-    const hemi = new THREE.HemisphereLight(0xa9c4e8, 0x6b5a3e, 1.15);
-    this.hemi = hemi;
-    this.group.add(sun, sun.target, hemi);
+    if (ownSun) this.group.add(sun, sun.target);
+    // cool sky fill keeps greens and shadowed faces readable against the very warm, grazing dawn sun
+    this.hemi = scene.environment ? new THREE.HemisphereLight(0xbcd6ff, 0x7a6a48, 0.75)
+      : new THREE.HemisphereLight(0xa9c4e8, 0x6b5a3e, 1.15);
+    this.group.add(this.hemi);
     if (app.renderer && !app.renderer.shadowMap.enabled) {
       app.renderer.shadowMap.enabled = true;
       app.renderer.shadowMap.type = THREE.PCFShadowMap;

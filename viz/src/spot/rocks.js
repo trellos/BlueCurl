@@ -32,7 +32,7 @@ vRW = (modelMatrix * rw).xyz;`);
 {
   float y = vRW.y;
   float band = sin(y * ${strata ? '1.6' : '0.7'} + sin(vRW.x * 0.3 + vRW.z * 0.21) * 1.2);
-  vec3 a = vec3(0.46, 0.38, 0.30), b = vec3(0.66, 0.54, 0.41), dark = vec3(0.2, 0.18, 0.16);
+  vec3 a = vec3(0.50, 0.40, 0.28), b = vec3(0.70, 0.56, 0.38), dark = vec3(0.22, 0.19, 0.15);
   vec3 c = mix(a, b, smoothstep(-0.3, 0.7, band));
   c = mix(dark, c, smoothstep(-1.2, 0.4, y));                    // wet / weed-dark near the water line
   c = mix(c, vec3(0.20, 0.26, 0.16), smoothstep(0.2, -0.8, y) * 0.6);
