@@ -1,0 +1,9 @@
+{
+  "defaults": { "demo": "demo/demo-basic.json", "fps": 30, "size": "1280x720", "video": true, "crf": 20 },
+  "clips": [
+    { "name": "wp8-clip-basic", "from": 0, "to": 92 },
+    { "name": "wp8-clip-basic-set2", "from": 26, "to": 38 },
+    { "name": "wp8-clip-basic-set2-1080", "from": 26, "to": 38, "size": "1920x1080" },
+    { "name": "wp8-clip-intervals", "demo": "demo/demo-intervals.json", "from": 0, "to": 60 }
+  ]
+}
