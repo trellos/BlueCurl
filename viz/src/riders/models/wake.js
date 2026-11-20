@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { hash01 } from '../../contracts.js';
 
 export const WAKE_N = 32;           // ribbon stations
-export const WAKE_T = 2.4;          // s of path shown
+export const WAKE_T = 2.0;          // s of path shown (≤ the sim's stored trail, ~2.1 s)
 export const SPRAY_N = 128;          // particles per rider
 export const SPRAY_LIFE = 0.75;     // s
 const SURF_K = 4;                    // surface samples along the path
@@ -33,18 +33,17 @@ float vnoise(vec2 p) {
 }
 void main() {
   float a = abs(vW.x), age = clamp(vW.y, 0.0, 1.0);
-  // two churned edges (the rails' wash) and a frothy centre right behind the rider
-  float e1 = (a - 0.78) / 0.22;
-  float edge = exp(-e1 * e1);
+  // a frothy centre right behind the rider
   float centre = (1.0 - smoothstep(0.0, 0.7, a)) * (1.0 - smoothstep(0.0, 0.45, age));
   float n = vnoise(vec2(vW.z * 2.2, vW.x * 3.0)) * 0.6 + vnoise(vec2(vW.z * 6.0, vW.x * 7.0 + 3.1)) * 0.4;
-  // up close: broken, frothy lines; from the wide camera: solid white water lines (noise fades out with distance)
+  // a filled ribbon with a soft centre falloff (no outline): frothy and broken up close, a smooth white water line
+  // from the wide camera (noise fades out with distance); both ends taper
   float far = smoothstep(40.0, 160.0, length(vWorld - cameraPosition));
-  float brk = mix(smoothstep(0.25, 0.75, n), 0.6 + 0.4 * n, far);
-  float edgeW = exp(-e1 * e1 * mix(1.0, 0.45, far));
-  float foam = clamp((edgeW * mix(0.9, 1.1, far) + centre * mix(0.55, 1.0, far)) * brk * mix(1.15, 2.2, far), 0.0, 1.0);
-  foam *= 1.0 - smoothstep(0.85, 1.0, a);
-  float alpha = foam * vW.w * pow(1.0 - age, 1.1);
+  float body = pow(max(1.0 - a * a, 0.0), 1.6);
+  float brk = mix(smoothstep(0.2, 0.8, n), 0.65 + 0.35 * n, far);
+  float foam = clamp((body * 0.85 + centre * 0.5) * brk * mix(1.2, 1.7, far), 0.0, 1.0);
+  float ends = smoothstep(0.0, 0.06, age) * (1.0 - smoothstep(0.45, 1.0, age));
+  float alpha = foam * vW.w * ends;
   vec3 col = vec3(0.95, 0.93, 0.9) * (uSunColor * 0.55 + uSkyAmb * 2.0);
   gl_FragColor = vec4(col * alpha, alpha);   // premultiplied
 }`;
@@ -93,6 +92,7 @@ export function wakeUniforms(app) {
 }
 
 const _p = new THREE.Vector3(), _q = new THREE.Vector3(), _d = new THREE.Vector3(), _s = new THREE.Vector3();
+const _d0 = new THREE.Vector3(), _dp = new THREE.Vector3();
 
 export class Wake {
   constructor(uniforms, id) {
@@ -157,6 +157,11 @@ export class Wake {
         if (_d.lengthSq() < 1e-8) _d.copy(o.fwd).setY(0);
         _d.normalize();
         _s.set(-_d.z, 0, _d.x);                              // horizontal side vector
+        // fade where the path doubles back (U-turns would fold the ribbon over itself into a hairpin)
+        if (i === 0) _d0.copy(_d);
+        else if (_dp.dot(_d) < 0.4) cut = true;             // a kink sharper than ~65° between stations
+        _dp.copy(_d);
+        const back = smooth01((_d.dot(_d0) + 0.35) / 0.7);
         // foam stays on the water: every station sits on the *current* sea surface (the path may have run over a
         // face that has since moved on, through a leap, or below the surface for a swimming animal)
         const sy = surfAt(age, _p.y), away = Math.abs(_p.y - sy);
@@ -169,11 +174,11 @@ export class Wake {
         if (cut) { _p.set(px, py, pz); }
         px = _p.x; py = _p.y; pz = _p.z;
         const a01 = age / WAKE_T;
-        const w = o.width * o.scale * (0.5 + 1.8 * Math.sqrt(a01));
+        const w = o.width * o.scale * (0.35 + 1.5 * Math.sqrt(a01));
         for (let k = 0; k < 2; k++) {
           const sd = k === 0 ? -1 : 1, j = 2 * i + k;
           P[3 * j] = _p.x + _s.x * w * sd; P[3 * j + 1] = _p.y + 0.04; P[3 * j + 2] = _p.z + _s.z * w * sd;
-          W[4 * j] = sd; W[4 * j + 1] = a01; W[4 * j + 2] = dist; W[4 * j + 3] = cut ? 0 : o.wake * smooth01(i / 2) * (1 - smooth01((away - 0.6) / 0.8));
+          W[4 * j] = sd; W[4 * j + 1] = a01; W[4 * j + 2] = dist; W[4 * j + 3] = cut ? 0 : o.wake * back * (1 - smooth01((away - 0.6) / 0.8));
         }
       }
       this.ribbon.geometry.attributes.position.needsUpdate = true;

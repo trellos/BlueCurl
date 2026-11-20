@@ -19,6 +19,7 @@ import { surfaceHeight } from '../wave/field.js';
 
 export const DEFAULT_RIDER_SCALE = 1.4;
 const XFADE = 0.3;
+const SURFER_MAX_BANK = 0.5;     // rad, soft
 const RIDE_ACTIONS = new Set(['trim', 'bottomTurn', 'lipHit', 'cutback', 'crouch']);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const smooth = (a, b, x) => { const s = clamp((x - a) / (b - a), 0, 1); return s * s * (3 - 2 * s); };
@@ -27,7 +28,10 @@ const lerpObj = (a, b, k) => { const o = {}; for (const key in b) o[key] = typeo
 const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
 
 /** Rider frame matrix: x = fwd, y = up (orthogonalised), z = fwd × up; scaled by s; origin pos. */
-export function riderFrame(r, s, out = new THREE.Matrix4()) {
+const _v = new THREE.Vector3(), _c = new THREE.Vector3(), _q = new THREE.Quaternion();
+/** maxBank (rad): soft cap on the roll of up about fwd relative to vertical (surfers: the sim's banked face normal
+ *  plus a steep face can reach 50–60°, which with a stance perpendicular to the deck reads as a fall). */
+export function riderFrame(r, s, out = new THREE.Matrix4(), maxBank = Infinity) {
   _x.set(r.fwd?.x ?? 1, r.fwd?.y ?? 0, r.fwd?.z ?? 0);
   if (_x.lengthSq() < 1e-8) _x.set(1, 0, 0);
   _x.normalize();
@@ -35,6 +39,17 @@ export function riderFrame(r, s, out = new THREE.Matrix4()) {
   _y.addScaledVector(_x, -_y.dot(_x));
   if (_y.lengthSq() < 1e-8) _y.set(0, 1, 0).addScaledVector(_x, -_x.y);
   _y.normalize();
+  if (Number.isFinite(maxBank)) {
+    _v.set(0, 1, 0).addScaledVector(_x, -_x.y);
+    if (_v.lengthSq() > 1e-6) {
+      _v.normalize();
+      const bank = Math.atan2(_c.crossVectors(_v, _y).dot(_x), _v.dot(_y)), ab = Math.abs(bank);
+      if (ab > maxBank) {
+        const nb = Math.sign(bank) * (maxBank + (ab - maxBank) * 0.25);
+        _y.copy(_v).applyQuaternion(_q.setFromAxisAngle(_x, nb));
+      }
+    }
+  }
   _z.crossVectors(_x, _y).normalize();
   out.makeBasis(_x.multiplyScalar(s), _y.multiplyScalar(s), _z.multiplyScalar(s));
   out.setPosition(r.pos?.x ?? 0, r.pos?.y ?? 0, r.pos?.z ?? 0);
@@ -192,7 +207,7 @@ export class RiderViews {
       if (!e) continue;
       seen.add(r.id);
       const a = evalPose(e.kind, r, t);
-      const F = riderFrame(r, scale, this._frame);
+      const F = riderFrame(r, scale, this._frame, e.kind === 'surfer' ? SURFER_MAX_BANK : Infinity);
       if (e.kind !== 'surfer') this._waterline(r, a, t, scale);
       else if (a.board.lift > 0 && this._surface(r, t) < r.pos.y - 0.08) a.board.lift = 0;   // the sim already hops
       e.model.apply(F, a);
