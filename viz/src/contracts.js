@@ -67,9 +67,10 @@ export const DEFAULT_CFG = {
   energyHalfLife: 20,      // s, per-column energy decay while waiting on the water
   laneSigma: 0.8,          // gaussian spill in lanes
   ambient: { amp: 0.22, period: 12, amp2: 0.12, period2: 17 },
-  pip: { enabled: true, onTakeoff: true, onBarrel: true, minHeight: 0.8, maxConcurrent: 1,
+  pip: { enabled: true, onTakeoff: true, onBarrel: true, minHeight: 0.3, maxConcurrent: 1,
          holdAfterRide: 1.5, size: 1 / 3, corner: 'auto' },   // 'auto' = per camera preset (WP7)
   camera: 'lineup',        // wide presets: lineup | point | cliff (key C)
+  cameraPush: 0.6,         // 0..1: how far the wide view eases toward an active break, then back (0 = static)
   hud: true,
 };
 export const intervalSec = (cfg) => cfg.bars * 4 * 60 / cfg.bpm;
