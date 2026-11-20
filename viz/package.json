@@ -11,7 +11,8 @@
     "test": "node --test \"test/*.test.mjs\""
   },
   "dependencies": {
-    "three": "0.186.0"
+    "three": "0.186.0",
+    "tuninator": "^0.3.1"
   },
   "devDependencies": {
     "playwright-core": "^1.63.0",
