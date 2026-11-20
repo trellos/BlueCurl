@@ -264,6 +264,9 @@ export const ENTRY_ORDER = [0, 2, 4, 1, 7, 3, 5, 6];
  *   classes are not all in the current key → the key becomes the chord's root + mode (major chord → major key, minor
  *   chord → natural minor; other/unknown quality → keep the current mode). lowRoot = the new tonic at or below the
  *   chord's lowest note. Diatonic chords never change the key (C major: C → Cm switches, C → Dm does not).
+ *   (WP10) chord() without a root never changes the key (Tuninator names the root later; tones still map). Only
+ *   harmonyEnrichment / harmonyCorrection / pitchAdded (and harmony present at noteStarted) are evaluated. After a
+ *   chord the octave is the one its lowest note alone would set (upper tones don't drag it up).
  * GuitarInput (src/input/guitar.js): new GuitarInput(app, { recognizer? }) wraps tuninator's createRecognizer, maps
  *   Notes to app.input.impulse / release, logs key changes as cfg 'guitar.key' ('C minor'). start() needs a user gesture.
  *   app.guitar.status = { state:'off'|'starting'|'listening'|'error', message, key, lowRoot, last:{ name, lane, t } }
