@@ -537,7 +537,8 @@ document.addEventListener('visibilitychange', () => { last = performance.now(); 
 
 // deterministic capture API (tools/capture.mjs)
 window.__seek = (t) => { seek(t); render(); gl.finish(); return simT; };
-window.__advance = (sec) => { const end = simT + sec - 1e-9; while (simT < end) stepSim(); render(); gl.finish(); return simT; };
+// (tolerance of 1 % of a step: a frame step written in decimals, e.g. 0.041667 s, must not take an extra step)
+window.__advance = (sec) => { const end = simT + sec - 0.01 * DT; while (simT < end) stepSim(); render(); gl.finish(); return simT; };
 window.__diag = () => renderer.info.programs.map((p) => ({ name: p.name, type: p.type, diag: p.diagnostics ? { runnable: p.diagnostics.runnable, log: p.diagnostics.programLog, frag: p.diagnostics.fragmentShader?.log?.slice(0, 600), vert: p.diagnostics.vertexShader?.log?.slice(0, 600) } : null }));
 window.__draw = async () => { frameDt = 0; render(); await drainGPU(); };
 window.__grab = () => renderer.domElement.toDataURL('image/png');
