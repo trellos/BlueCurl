@@ -86,6 +86,16 @@ export function coastMaterial(shared) {
           vec2 q=vW.xz/vec2(1.2,.8);vec2 f=abs(fract(q)-.5);
           float joint=smoothstep(.485-max(fwidth(q.x),fwidth(q.y)),.5,max(f.x,f.y));
           alb*=1.0-.18*joint;
+        } else if(vKind<5.5){
+          // Clapboard siding: 18 cm courses, a shadow line under each board's lip.
+          float q=vW.y/.18;float keep=1.0-smoothstep(.3,.9,fwidth(q));
+          float c=fract(q);alb*=1.0-keep*(.16*smoothstep(.82,1.0,c)+.05*(1.0-c));
+          alb*=.96+.06*vnoise(vec2(floor(q)*3.1,vW.x*.4+vW.z*.4));
+        } else if(vKind<6.5){
+          // Weathered deck boards / timber: 14 cm planks with dark joints, grain streaks.
+          float q=(abs(N.y)>.5?vW.z:vW.y)/.14;float keep=1.0-smoothstep(.3,.9,fwidth(q));
+          float j=abs(fract(q)-.5);alb*=1.0-keep*.22*smoothstep(.43,.5,j);
+          alb*=.92+.12*vnoise(vec2(floor(q)*5.7,vW.x*1.3));rough=.85;
         }
         float sh=coastShadow(vW,N),ndl=max(dot(N,L),0.0);
         float ao=mix(.74,1.0,smoothstep(5.5,7.2,vW.y));

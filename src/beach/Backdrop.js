@@ -3,7 +3,7 @@ import { glslDefines } from '../config.js';
 import { NOISE, SKY } from '../glsl/common.js';
 import { BEND_GLSL } from './terrain.js';
 import { HAZE_GLSL } from './haze.js';
-import { Seafront } from './Seafront.js';
+import { SurfTown } from './SurfTown.js';
 
 // Explore mode: what lies behind the promenade wall and around the bay, all cheap and procedural.
 //  - the seafront: two rows of 6-12 storey buildings (Nice: Belle Epoque hotels and 1960s-70s
@@ -18,6 +18,7 @@ import { Seafront } from './Seafront.js';
 //    faint Esterel on the western sea horizon, all fading into the sky's horizon haze.
 // x: along the shore (+x = west, the sun's side), z: +z inland.
 
+const SHOW_CITY = false;              // the Nice city rows (CITY below), kept for reference
 const Y_PROM = 5.56;                    // promenade / street level (Promenade.js Y_CAP)
 const CITY = [
   // slot (m), instances, front z, z jitter, depth, storeys min / max, tall share, street gap share
@@ -446,10 +447,11 @@ export class Backdrop {
     };
     const pre = glslDefines() + NOISE + SKY + HAZE_GLSL + BEND_GLSL;
     this.group = new THREE.Group();
-    this.seafront = new Seafront(shared);
+    // the low-rise surf town behind the beach (SurfTown.js; replaces the Nice seafront and city rows)
+    this.seafront = new SurfTown(shared);
     this.group.add(this.seafront.group);
     const box = boxGeometry();
-    for (const c of CITY) {
+    for (const c of SHOW_CITY ? CITY : []) {
       for (const attic of [0, 1, 2]) {   // facades, attics, roof housings
         const g = box.clone();
         g.instanceCount = c.n;

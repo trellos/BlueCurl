@@ -106,6 +106,11 @@ export class SurfDemo {
     if (kind === 'channel') {
       pos = [xw + 20 * dir, 0.6 + 0.35 * H, zL + 3.5];
       look = [xw - 2 * dir, 0.45 * H, zA - 0.5];
+    } else if (kind === 'custom') {
+      // ?shot=custom&campos=x,y,z&look=x,y,z: any fixed camera (relative to the watched column's x)
+      const v = (k, d) => { const a = (QS.get(k) || '').split(',').map(Number); return a.length === 3 && a.every(Number.isFinite) ? a : d; };
+      const cp = v('campos', [0, 3, 5]), lk = v('look', [0, 1, -8]);
+      pos = [xw + cp[0], cp[1], cp[2]]; look = [xw + lk[0], lk[1], lk[2]];
     } else if (kind === 'closeout') {
       // a water photographer ~5 m inside the landing line, eye 1.5 m above the still water, looking down
       // the line ~20 deg seaward: the nearest part of the wave stands up and pitches ~7 m away
