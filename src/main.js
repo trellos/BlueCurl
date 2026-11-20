@@ -478,7 +478,7 @@ function updatePlayback() {
   btn.setAttribute('aria-label', paused ? 'Resume waves' : 'Pause waves');
   btn.title = paused ? 'Resume waves (P)' : 'Pause waves (P)';
   btn.innerHTML = paused ? '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3l11 7-11 7Z"/></svg>' : '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4v12M13 4v12"/></svg>';
-  document.getElementById('scene-state').textContent = paused ? 'A MOMENT, HELD' : speed < 1 ? 'SLOW THE MOMENT' : 'THE LIVING COASTLINE';
+  document.getElementById('scene-state').textContent = paused ? 'A MOMENT, HELD' : speed < 1 ? 'SLOW THE MOMENT' : 'BLUECURL';
 }
 function togglePause() { paused = !paused; clock.reset(); updatePlayback(); }
 function toggleHelp(force) {
@@ -804,7 +804,7 @@ start().catch(window.__loadError);
 
 if (qs.has('gui')) {
   import('lil-gui').then(({ default: GUI }) => {
-    const gui = new GUI({ title: 'Shorebreak' });
+    const gui = new GUI({ title: 'BlueCurl' });
     if (SURF) {
       // wave parameters are compiled into the schedule / shaders at load: edit, then Apply (reload)
       const sp = { ...SURF, dir: SURF.dir > 0 ? 'right (+x)' : 'left (-x)', apply() {

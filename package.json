@@ -1,5 +1,5 @@
 {
-  "name": "shorebreak",
+  "name": "bluecurl",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -24,15 +24,14 @@
   },
   "license": "MIT",
   "author": "Christopher Canavan",
-  "homepage": "https://shorebreak-living-coast.netlify.app/",
   "engines": {
     "node": ">=24 <25"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cryptomanavan/ShoreBreak.git"
+    "url": "git+https://github.com/trellos/BlueCurl.git"
   },
   "bugs": {
-    "url": "https://github.com/cryptomanavan/ShoreBreak/issues"
+    "url": "https://github.com/trellos/BlueCurl/issues"
   }
 }
