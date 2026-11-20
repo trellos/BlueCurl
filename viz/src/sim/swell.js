@@ -27,14 +27,15 @@ export const TUNING = {
   mush: { base: 0.08, weak: 0.6, erratic: 0.85, many: 0.1 },
   // steep = base + strength·sN + power·power + spread·spN − mush·mush
   steep: { base: 0.2, strength: 0.45, power: 0.3, spread: 0.1, mush: 0.5 },
-  // curl = zoneCurl · sN · (base + conc·conc) · (p0 + p1·power) · (1 − mush·mush)
-  curl: { base: 0.15, conc: 0.85, p0: 0.35, p1: 0.65, mush: 0.9 },
+  // curl = gain · zoneCurl · sN · (base + conc·concC) · (p0 + p1·power) · (1 − mush·mush), concC = 1 − spread/full
+  // (many strong notes on one or two lanes → 0.85–0.95; a spread wall stays ≲ 0.2)
+  curl: { gain: 1.4, full: 0.35, base: 0.15, conc: 0.85, p0: 0.35, p1: 0.65, mush: 0.9 },
   zoneCurl: { outer: 1.15, point: 1.0, inside: 0.6 },
   // A-frame when the centroid is within ±aframe of the zone centre; peelBias shifts ambiguous (spread) input by
   // bias·spN² (a spread wall at the point peels south, away from the headland, instead of a short A-frame)
   dir: { aframe: 0.08, bias: 0.12 },
-  // vPeel = zone.vPeel · (v0 + v1·steep)
-  vPeel: { v0: 0.6, v1: 0.8 },
+  // vPeel = zone.vPeel · (v0 + v1·steep)   (point: ≈ 5 m/s soft … 8.4 m/s steep)
+  vPeel: { v0: 0.55, v1: 0.5 },
   // peelLen = available length ahead of the peak · clamp(base + spread·spN + steep·steep − mush·mush) · zonePeel
   peel: { base: 0.3, spread: 0.45, steep: 0.3, mush: 0.2, min: 0.2, minLen: 12 },
   zonePeel: { outer: 0.6, point: 1.0, inside: 0.85 },
@@ -44,8 +45,8 @@ export const TUNING = {
   closeout: { erratic: 0.4, strength: 0.45, power: 0.45 },          // erratic AND strong AND big
   barrel: { k: 0.55, pow: 1.5 },              // barrelTime = k · curl^pow · peelLen / vPeel   (s in the tube)
   // Peel timing: every column of a zone starts breaking before the crest passes endX (world x). With the default
-  // PATH the crest is at x 50 about 7 s after tPoint, so the point peel is capped at vPeel·7 s (≈ 55–80 m).
-  peelEndX: { outer: 120, point: 50, inside: 4 },
+  // PATH the crest is at x 46 about 10 s after tPoint (x 40 at 11.6 s), so point peels are capped at vPeel·10 s.
+  peelEndX: { outer: 120, point: 46, inside: 4 },
   // Headland: columns north of z0…z1 run into the cliff once x < 66. They fade out as the crest goes x0 → x1, and
   // no peel (or back crumble) reaches them after the crest passes breakX.
   headland: { z0: 30, z1: 42, x0: 80, x1: 66, breakX: 70 },
@@ -220,7 +221,8 @@ export function mapZone(st, zi, lim = null) {
   const er = st.erratic;
   const mush = clamp01(T.mush.base + T.mush.weak * (1 - sN) * (1 - 0.5 * power) + T.mush.erratic * er - T.mush.many * nN * sN);
   const steep = clamp01(T.steep.base + T.steep.strength * sN + T.steep.power * power + T.steep.spread * spN - T.steep.mush * mush);
-  const curl = clamp01((T.zoneCurl[z.key] ?? 1) * sN * (T.curl.base + T.curl.conc * conc) * (T.curl.p0 + T.curl.p1 * power) * (1 - T.curl.mush * mush));
+  const concC = 1 - clamp01(st.spread / T.curl.full);
+  const curl = clamp01(T.curl.gain * (T.zoneCurl[z.key] ?? 1) * sN * (T.curl.base + T.curl.conc * concC) * (T.curl.p0 + T.curl.p1 * power) * (1 - T.curl.mush * mush));
   // peak + direction
   const width = z.u1 - z.u0;
   const uPeak = clamp(st.centroid, z.u0 + 0.03 * width, z.u1 - 0.03 * width);

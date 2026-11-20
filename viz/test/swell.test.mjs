@@ -35,7 +35,7 @@ const zoneOf = (f, key) => f.breaks.find((b) => b.zone === key);
 // the five input shapes, all aimed at the first front of set 1 (tPoint 16, input window 0 … 7.5 s)
 const SHAPES = {
   hollow: reg(14, 1, 0.4, (i) => (i % 4 === 3 ? 4 : 3)),                     // (a) many, strong, concentrated
-  wall: reg(14, 1, 0.4, (i) => 2 + (i % 4)),                                  // (b) strong, spread over the point
+  wall: reg(14, 1, 0.4, (i) => [2, 4, 3, 5, 1, 6][i % 6]),                     // (b) strong, spread over the point
   mellow: reg(4, 2, 0.8, (i) => 3 + (i % 2), () => 0.4),                      // (c) few, soft
   south: reg(10, 1, 0.5, (i) => (i % 3 === 2 ? 1 : 2)),                       // (d) weighted to the south side
   north: reg(10, 1, 0.5, (i) => (i % 3 === 2 ? 5 : 4)),                       // (d) weighted to the north side
@@ -142,7 +142,8 @@ test('(a) many strong concentrated notes → big, hollow: highest curl and barre
     assert.ok(a.quality.barrelTime > o.quality.barrelTime, `barrel vs ${k}`);
   }
   assert.ok(a.H > pointBreak('wall').H && a.H > pointBreak('mellow').H);
-  assert.ok(a.curl > 0.5 && a.H > 2);
+  assert.ok(a.curl > 0.8 && a.H > 2);
+  assert.ok(pointBreak('wall').curl <= 0.25);
 });
 
 test('(b) strong but spread → steep wall: high steep, less curl than (a), long peel', () => {

@@ -22,9 +22,10 @@ const note = (bus, t, lane, velocity = 1, dur = 0.2) => bus.impulse({ lane, velo
   // set 1 (A tPoint 16, input 0–7.5 s): a few soft notes → small soft wave
   for (const [t, l] of [[2, 3], [3, 4], [4, 3], [5, 4], [6, 3]]) note(b, t, l, 0.4, 0.4);
   note(b, 8.5, 3, 0.4, 0.4); note(b, 9.5, 4, 0.4, 0.4);                         // set 1 B: soft echo
-  // set 2 (A tPoint 32, input 12.5–23.5): many strong concentrated → hollow barrel
-  for (const t of [14, 15, 16, 17]) note(b, t, 3);
-  for (let i = 0; i < 22; i++) note(b, 18 + i * 0.25, i % 4 === 3 ? 4 : 3, 1, 0.12);
+  // set 2 (A tPoint 32, input 12.5–23.5): many strong concentrated (lanes 4/3, peak just north of centre) → hollow
+  // barrel peeling south down the point
+  for (const t of [14, 15, 16, 17]) note(b, t, 4);
+  for (let i = 0; i < 22; i++) note(b, 18 + i * 0.25, i % 3 === 2 ? 3 : 4, 1, 0.12);
   for (let i = 0; i < 6; i++) note(b, 23.75 + i * 0.35, 3 + (i % 3 === 2 ? 1 : 0), 0.6); // B: smaller echo
   // set 3 (A tPoint 48, input 28.5–39.5): strong, spread → wall
   for (const [t, l] of [[30, 2], [31, 5], [32, 3], [33, 4]]) note(b, t, l);
