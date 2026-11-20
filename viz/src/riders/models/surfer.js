@@ -21,12 +21,15 @@ const L = { thigh: 0.44, shin: 0.43, uArm: 0.29, fArm: 0.26, ankle: 0.075, abd: 
 export const SURFER_LOOKS = {
   Kai:   { skin: 0xc08458, hair: 0x22160e, shorts: 0x15244a, stripe: 0xf2f2f2, hairStyle: 'short', goofy: false },
   Moana: { skin: 0xa86c46, hair: 0x120c08, shorts: 0x0c6a66, stripe: 0xff7a3a, hairStyle: 'long', goofy: true },
+  // Noa: full-length black wetsuit with rider-colour (teal) chest panel + sleeve bands, sun-bleached top-knot
+  Noa:   { skin: 0xd8a47a, hair: 0xe9c47c, shorts: 0x0e1216, stripe: 0x2ee6c8, hairStyle: 'bun', goofy: false, suit: 0x0e1216 },
 };
 
 function buildBody(rash, look) {
   const sb = new SkinBuilder();
   const cRash = color(rash), cRashD = color(rash).multiplyScalar(0.55), cSkin = color(look.skin), cHair = color(look.hair);
   const cShorts = color(look.shorts), cStripe = color(look.stripe), cDark = color(0x0a0807), cLip = color(look.skin).multiplyScalar(0.7);
+  const suit = look.suit != null ? color(look.suit) : null;     // full wetsuit: limbs + torso sides in suit colour
   // torso: one lofted trunk in bind space (pelvis origin, abdomen at y = 0.08, chest at 0.24), smoothly weighted
   // pelvis → abdomen → chest; boardshorts below the waistband, rashguard above
   const tab = (T, y) => {
@@ -43,6 +46,11 @@ function buildBody(rash, look) {
   const trunk = loftBody(y1 - y0, y0, 26, 18, (s) => tab(TORSO, y0 + s * (y1 - y0))[0], (s) => tab(TORSO, y0 + s * (y1 - y0))[1], () => 0, 1);
   const rotZ = new THREE.Matrix4().makeRotationZ(Math.PI / 2);
   sb.add(trunk, rotZ, (p, n) => {
+    if (suit) {
+      if (p.y < 0.075) return suit;
+      if (p.y > 0.5) return suit;                                          // collar
+      return Math.abs(n.x) > 0.6 ? suit : (p.y < 0.1 ? cStripe : cRash);           // black sides, teal panels
+    }
     if (p.y < 0.075) return Math.abs(Math.abs(p.x) - 0.15) < 0.025 && p.y < 0.05 ? cStripe : (p.y > 0.055 ? cDark : cShorts);
     return Math.abs(n.x) > 0.85 && p.y < 0.4 ? cRashD : cRash;
   }, (p) => {
@@ -52,7 +60,7 @@ function buildBody(rash, look) {
     if (y < 0.3) { const k = smooth(0.14, 0.3, y); return [[B.abdomen, 1 - k], [B.chest, k]]; }
     return [[B.chest, 1]];
   });
-  for (const sx of [-1, 1]) sb.add(ellipsoid(0.068, 0.066, 0.07, 10, 7), M([sx * 0.18, 0.24 + 0.24, -0.005]), cRash, B.chest);
+  for (const sx of [-1, 1]) sb.add(ellipsoid(0.068, 0.066, 0.07, 10, 7), M([sx * 0.18, 0.24 + 0.24, -0.005]), suit || cRash, B.chest);
   // head: neck, skull, hair, nose, eyes, ears
   sb.add(taper(0.1, 0.05, 0.048, 10, 2), M([0, -0.01, 0]), cSkin, B.head);
   sb.add(ellipsoid(0.094, 0.115, 0.104, 16, 12), M([0, 0.175, 0.012]), cSkin, B.head);
@@ -63,7 +71,10 @@ function buildBody(rash, look) {
     sb.add(ellipsoid(0.013, 0.01, 0.008, 6, 4), M([sx * 0.036, 0.183, 0.108]), cDark, B.head);
     sb.add(ellipsoid(0.014, 0.026, 0.018, 6, 4), M([sx * 0.095, 0.17, 0.0]), cSkin, B.head);
   }
-  if (look.hairStyle === 'long') {
+  if (look.hairStyle === 'bun') {
+    sb.add(ellipsoid(0.104, 0.085, 0.1, 12, 8), M([0, 0.2, -0.03]), cHair, B.head);                  // pulled back
+    sb.add(ellipsoid(0.058, 0.052, 0.058, 10, 7), M([0, 0.3, -0.06]), cHair, B.head);                 // top-knot
+  } else if (look.hairStyle === 'long') {
     sb.add(ellipsoid(0.105, 0.09, 0.1, 12, 8), M([0, 0.18, -0.035]), cHair, B.head);                 // volume at the back
     sb.add(taper(0.28, 0.045, 0.02, 8, 4), M([0, 0.2, -0.1], [-2.55, 0, 0]), cHair, B.head);          // ponytail
   } else {
@@ -71,15 +82,15 @@ function buildBody(rash, look) {
   }
   // arms (long-sleeve rashguard to the wrist)
   for (const [u, f, h] of [[B.uArmL, B.fArmL, B.handL], [B.uArmR, B.fArmR, B.handR]]) {
-    sb.add(taper(L.uArm, 0.05, 0.04, 10, 4), M(), cRash, u);
-    sb.add(taper(L.fArm, 0.04, 0.032, 10, 4), M(), (p) => (p.y > 0.235 ? cSkin : cRash), f);
+    sb.add(taper(L.uArm, 0.05, 0.04, 10, 4), M(), suit ? (p) => (Math.abs(p.y - 0.12) < 0.035 ? cStripe : suit) : cRash, u);
+    sb.add(taper(L.fArm, 0.04, 0.032, 10, 4), M(), (p) => (p.y > 0.235 ? cSkin : suit || cRash), f);
     sb.add(ellipsoid(0.046, 0.062, 0.022, 8, 6), M([0, 0.065, 0]), cSkin, h);
     sb.add(ellipsoid(0.014, 0.032, 0.014, 5, 4), M([0.035, 0.035, 0.012], [0, 0, -0.5]), cSkin, h);   // thumb
   }
   // legs: boardshorts to just above the knee
   for (const [th, sh, ft] of [[B.thighL, B.shinL, B.footL], [B.thighR, B.shinR, B.footR]]) {
-    sb.add(taper(L.thigh, 0.088, 0.062, 12, 5), M(), (p) => (p.y > 0.36 ? cSkin : (p.y > 0.33 ? cStripe : cShorts)), th);
-    sb.add(taper(L.shin, 0.058, 0.037, 10, 5), M(), cSkin, sh);
+    sb.add(taper(L.thigh, 0.088, 0.062, 12, 5), M(), suit ? suit : (p) => (p.y > 0.36 ? cSkin : (p.y > 0.33 ? cStripe : cShorts)), th);
+    sb.add(taper(L.shin, 0.058, 0.037, 10, 5), M(), suit ? (p) => (p.y > 0.4 ? cSkin : suit) : cSkin, sh);
     sb.add(ellipsoid(0.045, 0.125, 0.034, 8, 6), M([0, 0.065, -0.042]), cSkin, ft);
   }
   return sb.build();

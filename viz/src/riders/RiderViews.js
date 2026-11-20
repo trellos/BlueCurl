@@ -4,9 +4,15 @@
 // the water line for animals, which sink per action). app.cfg.riderScale (default 1.4, read live) enlarges every
 // rider about its contact point so silhouettes read from the wide camera (~150–250 m).
 //
+// Kinds: surfer, dolphin, seal, turtle (WP12b); an unknown kind falls back to the seal model.
+// Presence (WP12): present === false or state ASHORE → hidden (model, wake, spray). ENTER / LEAVE riders use the
+// paddle (surfers) / swim (animals) animation whatever their action (animals may still 'dive'). `present`
+// undefined counts as present.
 // Optional RiderState fields used when present (see contracts.js; all default sensibly):
 //   prevAction, prevActionT, actionStart (s) → 0.3 s cross-fade between actions
 //   vel {x,y,z}                              → wake/spray path fallback instead of fwd·speed
+//   enterT (s)                               → appear: rise out of the water and grow over APPEAR s from enterT
+//   exitT | goneT (s, planned ASHORE time)   → disappear: the same in reverse over the last APPEAR s of a LEAVE
 // Optional rider-system hook: app.riders.trail(id, age, out:Vector3) → world contact position `age` s ago
 //   (sampled sim path); else rider.trail = [{x,y,z}, ...] newest first with rider.trailDt spacing.
 import * as THREE from 'three';
@@ -14,15 +20,22 @@ import { RIDERS } from '../contracts.js';
 import { SurferModel, surferPose, blendPose } from './models/surfer.js';
 import { DolphinModel, dolphinPose } from './models/dolphin.js';
 import { SealModel, sealPose } from './models/seal.js';
+import { TurtleModel, turtlePose } from './models/turtle.js';
 import { Wake, wakeUniforms } from './models/wake.js';
 import { surfaceHeight } from '../wave/field.js';
 
 export const DEFAULT_RIDER_SCALE = 1.4;
 const XFADE = 0.3;
+export const APPEAR = 0.5;       // s: fade (sink + grow) in after enterT / out before exitT
+const APPEAR_SINK = { surfer: 1.1, dolphin: 0.7, seal: 0.5, turtle: 0.45 };   // m below the contact point when hidden
+const KINDS = new Set(['surfer', 'dolphin', 'seal', 'turtle']);
+/** Model kind for a rider kind (unknown kinds → seal: a generic surface animal). */
+export const modelKind = (kind) => (KINDS.has(kind) ? kind : 'seal');
 const SURFER_MAX_BANK = 0.5;     // rad, soft
 const RIDE_ACTIONS = new Set(['trim', 'bottomTurn', 'lipHit', 'cutback', 'crouch']);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const smooth = (a, b, x) => { const s = clamp((x - a) / (b - a), 0, 1); return s * s * (3 - 2 * s); };
+const lerp = (a, b, k) => a + (b - a) * k;
 const lerpObj = (a, b, k) => { const o = {}; for (const key in b) o[key] = typeof b[key] === 'number' && typeof a[key] === 'number' ? a[key] + (b[key] - a[key]) * k : b[key]; return o; };
 
 const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
@@ -56,6 +69,27 @@ export function riderFrame(r, s, out = new THREE.Matrix4(), maxBank = Infinity) 
   return out;
 }
 
+/**
+ * Presence → appearance 0..1 (pure in (r, t)): 0 = hidden. Riders ASHORE / present === false are hidden; after
+ * enterT they rise and grow in over APPEAR s; before exitT (or goneT) of a LEAVE they sink out over APPEAR s.
+ */
+export function appearance(r, t) {
+  if (!r || r.present === false || r.state === 'ASHORE') return 0;
+  let k = 1;
+  if (Number.isFinite(r.enterT) && t >= r.enterT - 1e-6) k = Math.min(k, smooth(0, APPEAR, t - r.enterT));
+  const exitT = Number.isFinite(r.exitT) ? r.exitT : r.goneT;
+  if (r.state === 'LEAVE' && Number.isFinite(exitT)) k = Math.min(k, smooth(0, APPEAR, exitT - t));
+  return k;
+}
+
+/** ENTER / LEAVE: paddle (surfers) / swim (animals) whatever the sim's cue; returns r itself otherwise. */
+export function presenceRider(r, kind) {
+  if (r.state !== 'ENTER' && r.state !== 'LEAVE') return r;
+  const want = kind === 'surfer' ? 'paddle' : 'swim';
+  if (r.action === want || (kind !== 'surfer' && (r.action === 'dive' || r.action === 'paddle'))) return r;
+  return { ...r, action: want, prevAction: null };
+}
+
 function hashSeed(id) { return ((Math.imul((id | 0) + 1, 0x9e3779b1) >>> 0) % 1000) / 1000; }
 
 /** Pose for any kind with the optional cross-fade from prevAction. */
@@ -64,6 +98,7 @@ export function evalPose(kind, r, t) {
   const one = (action, at) => {
     if (kind === 'surfer') return surferPose(action, at, t, seed, r.speed || 0);
     if (kind === 'dolphin') return dolphinPose(action, r.state, at, t, seed, r.speed || 0);
+    if (kind === 'turtle') return turtlePose(action, r.state, at, t, seed, r.speed || 0);
     return sealPose(action, r.state, at, t, seed, r.speed || 0);
   };
   const cur = one(r.action || 'idle', r.actionT ?? 0);
@@ -104,6 +139,7 @@ function wakeParams(kind, r, a, goofy, t = 0) {
     else if (act === 'wipe') { o.wake = 0.4; o.burst = 0.5 * env; }
     else if (riding || r.state === 'TAKEOFF') { o.wake = 0.9 * smooth(1, 4, v); o.width = kind === 'dolphin' ? 0.45 : 0.5; o.spray = 0.3 * smooth(3, 8, v); o.tailBack = kind === 'dolphin' ? 0.05 : 0.3; o.lift = -0.8; }
     else if (act === 'swim' || act === 'paddle') { o.wake = 0.5 * smooth(0.3, 1.5, v); o.width = 0.4; o.tailBack = 0.2; }
+    if (kind === 'turtle') { o.wake *= 0.6; o.spray *= 0.6; o.width = Math.max(o.width, 0.5); }   // slow, broad, gentle
   }
   return o;
 }
@@ -125,15 +161,17 @@ export class RiderViews {
 
   _ensure(r) {
     let e = this.models.get(r.id);
-    if (e && e.kind === r.kind) return e;
+    if (e && (r.kind == null || e.srcKind === r.kind)) return e;
+    if (e) { e.model.group.removeFromParent(); e.wake.ribbon.removeFromParent(); e.wake.spray.removeFromParent(); }
     const def = { ...(RIDERS.find((d) => d.id === r.id) || {}), ...r };
     if (!def.kind) return null;
-    const model = def.kind === 'surfer' ? new SurferModel(def, this.sunDir)
-      : def.kind === 'dolphin' ? new DolphinModel(def, this.sunDir) : new SealModel(def, this.sunDir);
+    const mk = modelKind(def.kind);
+    const model = mk === 'surfer' ? new SurferModel(def, this.sunDir) : mk === 'dolphin' ? new DolphinModel(def, this.sunDir)
+      : mk === 'turtle' ? new TurtleModel(def, this.sunDir) : new SealModel(def, this.sunDir);
     const wake = new Wake(this.wakeU, def.id | 0);
     this.group.add(model.group, wake.ribbon, wake.spray);
     model.group.visible = wake.ribbon.visible = wake.spray.visible = false;
-    e = { kind: def.kind, model, wake };
+    e = { kind: mk, srcKind: def.kind, model, wake };
     this.models.set(r.id, e);
     return e;
   }
@@ -201,19 +239,26 @@ export class RiderViews {
       this.wakeU.uProj.value = h / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
     }
     const seen = new Set();
-    for (const r of list) {
-      if (!r || !r.pos) continue;
-      const e = this._ensure(r);
+    for (const r0 of list) {
+      if (!r0 || !r0.pos) continue;
+      const e = this._ensure(r0);
       if (!e) continue;
-      seen.add(r.id);
+      const vis = appearance(r0, t);
+      if (vis <= 0) continue;                    // ASHORE / not present: hidden below (not in `seen`)
+      seen.add(r0.id);
+      const r = presenceRider(r0, e.kind);
       const a = evalPose(e.kind, r, t);
-      const F = riderFrame(r, scale, this._frame, e.kind === 'surfer' ? SURFER_MAX_BANK : Infinity);
-      if (e.kind !== 'surfer') this._waterline(r, a, t, scale);
+      // appear / leave: grow from 55 % and rise from below the surface (the water hides the start)
+      const sc = scale * (vis < 1 ? lerp(0.55, 1, vis) : 1);
+      const F = riderFrame(r, sc, this._frame, e.kind === 'surfer' ? SURFER_MAX_BANK : Infinity);
+      if (e.kind !== 'surfer') this._waterline(r, a, t, sc);
       else if (a.board.lift > 0 && this._surface(r, t) < r.pos.y - 0.08) a.board.lift = 0;   // the sim already hops
+      if (vis < 1) F.elements[13] -= (1 - vis) ** 2 * (APPEAR_SINK[e.kind] ?? 0.6) * scale;
       e.model.apply(F, a);
       e.model.group.visible = true;
       const goofy = e.kind === 'surfer' && e.model.look?.goofy;
       const wp = wakeParams(e.kind, r, a, goofy, t);
+      if (vis < 1) { wp.wake *= vis; wp.spray *= vis; wp.burst *= vis; }
       wp.scale = scale;
       wp.surface = this._surfFn || (this._surfFn = (x, z) => this._surfaceAt(x, z));
       this._tNow = t;

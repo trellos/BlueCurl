@@ -2,9 +2,9 @@
 // RiderState driver and renders with its own cameras (the CameraRig is bypassed).
 //
 // URL:  scene=single|grid|lineup|far|wave|cycle   (default cycle)
-//   kind=surfer|dolphin|seal|all  action=<cue>  at=<actionT 0..1>  t=<s>  speed=<m/s>  state=<RiderStateName>
+//   kind=surfer|dolphin|seal|turtle|all  i=<index within the kind>  action=<cue>  at=<actionT 0..1>  t=<s>  speed=<m/s>  state=<RiderStateName>
 //   actions=a,b,c (grid: one rider per action)  az=<deg> dist=<m> ch=<camera height m> fov=<deg> (single/grid camera)
-//   cam=x,y,z,tx,ty,tz,fov (override)  inset=1 (close 3/4 inset view)  scale=<riderScale>  labels=0  w=&h=
+//   enterT=<s> present=0|1 (single: presence fade / hide)  cam=x,y,z,tx,ty,tz,fov (override)  inset=1 (close 3/4 inset view)  scale=<riderScale>  labels=0  w=&h=
 //   wave: demo=<path> (default /demo/demo-basic.json), t = sim time to advance to, u=<offset m from the peak>
 // Hooks: __ready, __render(t), __info, __bench(n) → {all, noRiders, riders} GPU ms, __riders (fake list)
 import * as THREE from 'three';
@@ -36,9 +36,10 @@ const inset = new THREE.PerspectiveCamera(40, 16 / 9, 0.1, 20000);
 const SURF_ACTIONS = ['idle', 'paddle', 'pop', 'trim', 'bottomTurn', 'lipHit', 'cutback', 'crouch', 'kickout', 'wipe'];
 const DOLPHIN_ACTIONS = ['idle', 'swim', 'jump', 'trim', 'bottomTurn', 'crouch', 'dive', 'wipe'];
 const SEAL_ACTIONS = ['idle', 'swim', 'trim', 'cutback', 'jump', 'dive', 'wipe'];
-const ACTIONS = { surfer: SURF_ACTIONS, dolphin: DOLPHIN_ACTIONS, seal: SEAL_ACTIONS };
+const TURTLE_ACTIONS = ['idle', 'swim', 'trim', 'bottomTurn', 'roll', 'dive', 'jump', 'wipe'];
+const ACTIONS = { surfer: SURF_ACTIONS, dolphin: DOLPHIN_ACTIONS, seal: SEAL_ACTIONS, turtle: TURTLE_ACTIONS };
 const RIDE = new Set(['pop', 'trim', 'bottomTurn', 'lipHit', 'cutback', 'crouch']);
-const defOf = (kind, i = 0) => RIDERS.filter((r) => r.kind === kind)[i % 2];
+const defOf = (kind, i = 0) => { const l = RIDERS.filter((r) => r.kind === kind); return l[i % l.length]; };
 
 function waterY(x, z, t) { return field.surfaceHeight(app.swell.fronts || [], x, z, t); }
 
@@ -81,10 +82,12 @@ function build(t) {
   if (SCENE === 'single') {
     const def = defOf(kind, num('i', 0));
     fake.riders.push(rider(def, def.id, 200, -20, { action, at, t, heading, speed, state: q.get('state') }));
+    if (q.has('enterT')) fake.riders[0].enterT = num('enterT', 0);             // presence fade (WP12b)
+    if (q.has('present')) fake.riders[0].present = q.get('present') !== '0';
     target = [200, fake.riders[0].pos.y + (kind === 'surfer' ? 1.0 : 0.3), -20];
     if (!q.has('cam')) orbit(cam, target, num('az', 200), num('dist', 7), num('ch', 1.6), num('fov', 40));
   } else if (SCENE === 'grid') {
-    const kinds = kind === 'all' ? ['surfer', 'dolphin', 'seal'] : [kind];
+    const kinds = kind === 'all' ? ['surfer', 'dolphin', 'seal', 'turtle'] : [kind];
     let k = 0;
     const acts = q.get('actions') ? q.get('actions').split(',') : null;
     const sp = num('spacing', kind === 'surfer' ? 3.6 : 4.4);
@@ -101,18 +104,18 @@ function build(t) {
     if (!q.has('cam')) orbit(cam, target, num('az', 200), num('dist', rows.length * sp * 0.85 + 4), num('ch', 2.5), num('fov', 40));
   } else if (SCENE === 'lineup') {
     RIDERS.forEach((def, i) => {
-      const z = -20 + (i - 2.5) * 4.5;
+      const z = -20 + (i - (RIDERS.length - 1) / 2) * 4.5;
       fake.riders.push(rider(def, def.id, 200 + (i % 2) * 1.5, z, { action: def.kind === 'surfer' ? 'idle' : 'idle', at: 0.5, t, heading: Math.PI * 0 }));
       labels.push({ text: def.name, p: [200 + (i % 2) * 1.5, 2.8, z] });
     });
     target = [200, 0.6, -20];
-    if (!q.has('cam')) orbit(cam, target, num('az', 195), num('dist', 26), num('ch', 3.5), num('fov', 40));
+    if (!q.has('cam')) orbit(cam, target, num('az', 195), num('dist', 34), num('ch', 3.5), num('fov', 40));
   } else if (SCENE === 'far') {
     // the wide camera's view: lineup ~200 m out, a mix of waiting and riding cues
-    const mix = [['idle', 0.5], ['trim', 0.5], ['swim', 0.5], ['jump', 0.4], ['idle', 0.5], ['trim', 0.5]];
+    const mix = [['idle', 0.5], ['trim', 0.5], ['swim', 0.5], ['jump', 0.4], ['idle', 0.5], ['trim', 0.5], ['paddle', 0.5], ['swim', 0.5]];
     RIDERS.forEach((def, i) => {
       const [a, at2] = mix[i];
-      const x = 190 + (i % 3) * 6, z = -45 + i * 11;
+      const x = 190 + (i % 3) * 6, z = -45 + i * 9;
       fake.riders.push(rider(def, def.id, x, z, { action: q.get('action') || a, at: at2, t, heading: THREE.MathUtils.degToRad(i % 2 ? 100 : -80) }));
     });
     const C = CAMERA_DEFAULT;
@@ -209,7 +212,7 @@ function drawLabels() {
 
 // ---------------------------------------------------------------- cycle mode (interactive): every action per kind
 function cycle(tw) {
-  const kinds = ['surfer', 'dolphin', 'seal'];
+  const kinds = ['surfer', 'dolphin', 'seal', 'turtle'];
   const per = 2.6;
   const all = kinds.flatMap((k) => ACTIONS[k].map((a) => [k, a]));
   const idx = Math.floor(tw / per) % all.length, at = (tw % per) / per;
