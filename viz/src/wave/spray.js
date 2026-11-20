@@ -111,7 +111,7 @@ void main() {
   if (c.zi != C.w || abs(c.tau - tauT) > 0.15) return;
   float H = c.H;
   float str = kind == 0 ? H * (0.3 + 0.7 * max(c.curl, c.steep)) : H * (0.35 + 0.65 * c.curl);
-  float keep = clamp(str * uSprayTune.w * (kind == 2 ? 0.42 : 0.38) - 0.12, 0.0, 1.0);
+  float keep = clamp(str * uSprayTune.w * (kind == 2 ? 0.42 : 0.38) * (clo ? 1.8 : 1.0) - 0.12, 0.0, 1.0);   // close-outs explode
   if (spRnd(s) > keep) return;
 
   // emission point: lip tip at te, lip velocity by finite difference
@@ -132,14 +132,15 @@ void main() {
     vw = uWind; kd = 1.5; gr = 6.5; size = mix(0.025, 0.07, r4); a0 = 0.9;
     if (veil) { size = mix(0.35, 0.9, r4) * hs * (0.6 + age / life); a0 = 0.1; gr = 2.5; }
   } else if (kind == 1) {
-    v0 = vl * 0.3 + vec3(mix(-1.0, -5.0, r1), mix(3.0, 9.5, r2) * hs, (r3 - 0.5) * 5.0);
+    v0 = vl * 0.3 + vec3(mix(-1.0, -5.0, r1), mix(3.0, 9.5, r2) * hs * (clo ? 1.45 : 1.0), (r3 - 0.5) * 5.0);
     vw = uWind * 0.4; kd = 0.8; gr = 9.81; size = mix(0.035, 0.11, r4); a0 = 0.85;
     p0 += vec3(0.0, -0.15 * H, 0.0);
   } else {
     p0 += vec3((r3 - 0.5) * 1.5 * hs, -0.2 * H, (spRnd(s) - 0.5) * 2.0);
     v0 = vec3(mix(-1.0, -3.0, r1), mix(1.2, 3.5, r2) * hs, (spRnd(s) - 0.5) * 1.5);
     vw = uWind * 0.35 + vec3(0.0, 0.45, 0.0); kd = 1.0; gr = 0.15;     // rising, drifting back over the wave
-    size = mix(2.8, 7.0, r4) * hs * (0.45 + 0.9 * age / life); a0 = 0.32;
+    size = mix(2.8, 7.0, r4) * hs * (0.45 + 0.9 * age / life) * (clo ? 1.4 : 1.0); a0 = 0.32;
+    if (clo) { v0.y *= 1.6; a0 = 0.45; }                             // a tall plume wall along the close-out
   }
   float e = exp(-kd * age);
   vec3 p = p0 + vw * age + (v0 - vw) * (1.0 - e) / kd - vec3(0.0, gr, 0.0) * (age / kd - (1.0 - e) / (kd * kd));
@@ -161,7 +162,10 @@ void main() {
   float cth = dot(-uSunDir, V);
   float phase = 0.7 * spHG(cth, 0.75) + 0.3 * spHG(cth, -0.2);
   bool soft = kind == 2 || veil;
-  vec3 rad = uSunColor * (phase * uSprayTune.y * 3.0 * (soft ? 0.45 : 1.0) + (soft ? 0.09 : 0.0)) + uSkyAmb * (soft ? 0.9 : 0.7);
+  float sl = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722));
+  vec3 sunW = mix(vec3(sl), uSunColor, 0.4);                       // whitish diffuse light in the mist
+  vec3 rad = uSunColor * phase * uSprayTune.y * 3.0 * (soft ? 0.45 : 1.0) + sunW * (soft ? 0.16 : 0.0)
+           + vec3(0.80, 0.88, 0.98) * uSkyAmb.g * (soft ? 1.6 : 1.0);
   rad = min(rad, vec3(9.0));                                   // backlit droplets bloom, but no blown-out blobs
   vCol = vec4(rad, a0 * fade);
   vKind = soft ? 2.0 : float(kind);

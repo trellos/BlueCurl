@@ -54,7 +54,7 @@ float wvFoam(float tauU, float sg, float xi, float yl, float H, float curl, floa
   // ragged envelope edges: jitter the break phase (edges along the crest) and fade toward both mesh clip edges
   // with noise (edges across the profile) — no straight-edged slabs where a peel ends or a neighbour's cut falls
   float jn = bcVnoise(P.xz * 0.31 + 3.1) - 0.5, jn2 = bcVnoise(P.xz * 0.9 + 7.7) - 0.5;
-  tauU += 0.14 * jn + 0.05 * jn2;
+  tauU += 0.22 * jn + 0.08 * jn2;
   float edgeF = smoothstep(0.0, 1.0, (min(xi - xiMin, xiMax - xi) - 1.0) / 7.0 + 0.45 * jn + 0.2 * jn2);
 
   // ---- envelopes (wave coordinates)
@@ -89,13 +89,18 @@ float wvFoam(float tauU, float sg, float xi, float yl, float H, float curl, floa
   // folded (a single (xi, z) projection streaks across the plunge)
   float wy = smoothstep(0.15, 0.6, N.y * N.y);
   vec2 dir = normalize(vec2(-0.6, 0.25));
-  vec4 nbA = wvFlowTex(vec2(xi * 0.85, P.z) / tile, dir, 0.22, t);
-  vec4 nbB = wvFlowTex(vec2(yl * 1.1 + 3.7, P.z) / tile, dir, 0.22, t + 0.9);
-  vec4 nb = mix(nbB, nbA, wy);
+  // domain warp (low-frequency value noise) so the Worley cells don't tile into a regular honeycomb
   vec2 wq = P.xz / tile;                                      // world anchored (trail, carpets)
-  vec4 nw = texture(uFoamTex, wq * vec2(0.35, 1.1) + vec2(0.013, 0.004) * t);   // stretched along the travel (x)
-  vec4 nf = texture(uFoamTex, wq * 2.7 + vec2(0.31, 0.17));
-  vec4 nc = texture(uFoamTex, wq * 0.21 + vec2(0.71, 0.29));  // coarse: density variation / rafts
+  vec2 warp = vec2(bcVnoise(wq * 0.55 + 1.3), bcVnoise(wq * 0.55 + 8.1)) - 0.5;
+  vec2 warp2 = vec2(bcVnoise(wq * 1.7 + 4.2), bcVnoise(wq * 1.7 + 2.6)) - 0.5;
+  vec2 wv = warp * 0.9 + warp2 * 0.3;
+  vec4 nbA = wvFlowTex(vec2(xi * 0.85, P.z) / tile + wv, dir, 0.22, t);
+  vec4 nbB = wvFlowTex(vec2(yl * 1.1 + 3.7, P.z) / tile + wv, dir, 0.22, t + 0.9);
+  vec4 nb = mix(nbB, nbA, wy);
+  vec4 nw = texture(uFoamTex, wq * vec2(0.35, 1.1) + wv * 0.8 + vec2(0.013, 0.004) * t);   // stretched along the travel (x)
+  vec4 nw2 = texture(uFoamTex, mat2(0.8, 0.6, -0.6, 0.8) * wq * 0.83 - wv * 0.6 + vec2(0.37, 0.11));  // second octave, rotated
+  vec4 nf = texture(uFoamTex, wq * 2.7 + wv * 1.5 + vec2(0.31, 0.17));
+  vec4 nc = texture(uFoamTex, wq * 0.21 + wv * 0.25 + vec2(0.71, 0.29));  // coarse: density variation / rafts
 
   float g = uFoamTune.z;
   float nBore = 0.5 * nb.r + 0.35 * nb.g + 0.15 * nf.g;
@@ -104,10 +109,10 @@ float wvFoam(float tauU, float sg, float xi, float yl, float H, float curl, floa
   float envB = clamp((bore + spill) * g, 0.0, 1.0);
   float ragged = envB * (0.7 + 0.45 * nc.r + 0.25 * nf.r);         // ragged, feathered outline
   float dense = wvCov(clamp(ragged * 1.3, 0.0, 1.0), nBore + 0.12, 0.45);   // solid while young, holes only as it thins
-  float laceB = smoothstep(0.35, 0.8, 1.0 - nb.a * 0.8 + 0.25 * nb.g + 0.45 * (nc.g - 0.5) + 0.2 * (nf.r - 0.5));
+  float laceB = smoothstep(0.35, 0.8, 1.0 - nb.a * 0.5 - nw2.a * 0.3 + 0.25 * nb.g + 0.45 * (nc.g - 0.5) + 0.2 * (nf.r - 0.5));
   float cBore = max(dense * smoothstep(0.35, 0.75, envB), laceB * smoothstep(0.0, 0.5, envB) * 0.85);
   // trail / carpets: fixed lace shape, opacity follows the envelope and the coarse rafts
-  float nStreak = 0.55 * (1.0 - nw.a) + 0.25 * nw.b + 0.2 * nf.g;
+  float nStreak = 0.38 * (1.0 - nw.a) + 0.27 * (1.0 - nw2.a) + 0.17 * nw.b + 0.18 * nf.g;   // two octaves of webs
   float lace = smoothstep(0.45, 0.8, nStreak);
   float fpatch = smoothstep(0.15, 0.75, nc.r * 0.7 + nw.r * 0.3);
   float cTrail = lace * clamp(trail * g * (0.55 + 0.45 * fpatch) * 1.2, 0.0, 1.0);

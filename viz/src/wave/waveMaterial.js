@@ -57,8 +57,8 @@ export function createWaveLookUniforms() {
     uFoamTune: { value: new THREE.Vector4(9.0, 3.0, 1.0, 1.3) },   // tile m, trail decay s, coverage gain, lip-line gain
     uFoamTex: { value: null },
     uFaceDark: { value: new THREE.Vector4(0.32, 0.62, 0.66, 0.85) },  // face multiplier (rgb) and strength
-    uTroughDark: { value: 0.28 },                                    // dark band in the trough in front of the face
-    uCrestLit: { value: 0.45 },                                      // lit crest line on swells / walls
+    uTroughDark: { value: 0.4 },                                    // dark band in the trough in front of the face
+    uCrestLit: { value: 0.65 },                                      // lit crest line on swells / walls
     uFoamRelief: { value: 0.12 },                                    // foam bump height (× H, m)
     uWvDebug: { value: 0 },       // dev: 1 base water, 2 transmission, 3 foam, 4 normal, 5 sigma/tau, 6 path
   };
@@ -78,6 +78,7 @@ export function createFrontUniforms(keyTex, colsTex) {
     uAlpha: { value: 1 },
     uClip: { value: new THREE.Vector4(-60, 60, 0.5, 0.5) },
     uEndTaper: { value: 24 },
+    uFrontCO: { value: 0 },        // close-out intensity 0..1 (whitewater wall + denser foam)
   };
 }
 
@@ -88,6 +89,7 @@ uniform float uFrontVX;
 uniform float uAlpha;
 uniform vec4 uClip;        // xiMin, xiMax (local, m), band at xiMin, band at xiMax
 uniform float uEndTaper;   // m, height taper at the crest ends
+uniform float uFrontCO;    // close-out intensity
 uniform vec2 uChopFade;    // = ocean's
 out vec3 vP;
 out vec2 vXZ;
@@ -165,6 +167,11 @@ void main() {
   d *= (1.0 - smoothstep(uChopFade.x, uChopFade.y, dist)) * cw * chopW;
   d.xz *= 1.0 - smoothstep(uChopFade.x * 0.25, uChopFade.x, dist);
 
+  // close-out: the collapsing roller stands up as a whitewater wall (visual only: a smooth lift of the crest →
+  // trough band while it explodes; riders are wiping out there anyway)
+  float coW = uFrontCO * smoothstep(0.55, 0.75, tauU) * (1.0 - smoothstep(1.1, 1.6, tauU))
+            * smoothstep(BC_SIGMA_CREST - 0.12, BC_SIGMA_CREST, sg) * (1.0 - smoothstep(BC_SIGMA_TROUGH - 0.05, BC_SIGMA_TROUGH + 0.08, sg));
+  Pw.y += coW * 0.6 * col.H * uAlpha;
   vP = Pw + d;
   vXZ = Pw.xz;
   vN = n;
@@ -188,6 +195,7 @@ uniform float uLeanBias;
 uniform float uAlpha;
 uniform float uFrontVX;
 uniform vec4 uClip;
+uniform float uFrontCO;
 uniform vec4 uWvLook;
 uniform vec3 uLipTint;
 uniform vec3 uFaceTint;
@@ -246,13 +254,13 @@ void main() {
   float Hs = max(H * uAlpha, 0.3);
   // ---- value structure so a wave reads from far away: darker saturated teal face (the sky reflection on the
   // shoreward face is cut; red goes first), a soft dark band in the trough in front of it, a lit crest line
-  float Hk = smoothstep(0.35, 1.6, H * uAlpha);
-  float faceK = Hk * smoothstep(WV_SIG_CREST - 0.02, WV_SIG_CREST + 0.06, sg) * (1.0 - smoothstep(WV_SIG_TROUGH - 0.02, WV_SIG_TROUGH + 0.06, sg))
-              * smoothstep(0.0, 0.45, -N.x);
+  float Hk = smoothstep(0.3, 1.4, H * uAlpha) * (0.6 + 0.4 * smoothstep(1.4, 3.5, H * uAlpha));   // scales with column H
+  float faceK = Hk * smoothstep(WV_SIG_CREST - 0.02, WV_SIG_CREST + 0.06, sg) * (1.0 - smoothstep(WV_SIG_TROUGH - 0.02, WV_SIG_TROUGH + 0.08, sg))
+              * smoothstep(0.0, 0.22, -N.x);                    // gentle unbroken faces count too
   col = mix(col, col * uFaceDark.rgb, faceK * uFaceDark.w);
-  float dtr = (sg - WV_SIG_TROUGH - 0.03) / 0.07;
+  float dtr = (sg - WV_SIG_TROUGH - 0.03) / 0.09;
   col *= 1.0 - uTroughDark * Hk * exp(-dtr * dtr);
-  float dcr = (sg - WV_SIG_CREST - 0.02) / 0.04;
+  float dcr = (sg - WV_SIG_CREST - 0.02) / 0.055;
   float crestK = Hk * exp(-dcr * dcr) * (1.0 - smoothstep(0.1, 0.4, tau) * step(0.0, vA.z));
 
   // ---- light transmitted through thin raised water (backlit lip / face)
@@ -271,12 +279,15 @@ void main() {
   float trans = uWvLook.x * exp(-path * 0.5) + uWvLook.y * exp(-path * 0.22);
   col += min(tint * sunL * trans * ph * backlit * elev * (1.0 - F), vec3(3.4));   // no hot pixels at the very tip
   // lit crest: low sun catching / shining through the top of the swell (turquoise-gold rim)
-  col += mix(uLipTint, vec3(1.0, 0.72, 0.42), 0.45) * sunL * uCrestLit * crestK * (0.35 + 0.65 * ph);
+  col += min(mix(uLipTint, vec3(1.0, 0.72, 0.42), 0.45) * sunL * uCrestLit * crestK * (0.45 + 0.55 * ph), vec3(1.3));   // no smear in the glitter
 
   // ---- foam
   float lipLine, fshade, fh;
   float fc = wvFoam(tauU, sg, xi, yl, H, vC.x, vC.y, vC.z, uFrontVX, vP, Nv, uClip.x, uClip.y, uAlpha, uTime, lipLine, fshade, fh);
-  float fok = smoothstep(0.0, 0.33, vFoamOK) * smoothstep(0.0, 1.0, vFoamOK);   // 0 on the jump strip, soft ramp beyond
+  fh *= 1.0 + uFrontCO;                            // close-out whitewater: chunkier relief
+  // 0 on the jump strip; beyond it a noise-jittered ramp so a peel end breaks up raggedly instead of a straight cut
+  float fjit = bcVnoise(vP.xz * 0.22 + 5.3) + 0.5 * bcVnoise(vP.xz * 0.7 + 1.9) - 0.75;
+  float fok = smoothstep(0.0, 0.2, vFoamOK) * smoothstep(0.0, 1.0, vFoamOK * 1.5 - 0.3 + 0.9 * fjit);
   float dzE = min(vP.z - (${FRONT_Z0.toFixed(1)}), ${(FRONT_Z0 + FRONT_W).toFixed(1)} - vP.z);
   fok *= smoothstep(2.0, 22.0, dzE);               // fade out toward the crest ends (no hard foam edge at the mesh end)
   fc *= fok; fh *= fok; lipLine *= fok;
@@ -293,8 +304,10 @@ void main() {
     vec3 Nf = normalize(abs(det) * N0 - sign(det) * (hx * r1 + hy * r2));
     float lit = smoothstep(-0.35, 0.45, dot(Nf, uSunDir));           // soft self-shadow on the shoreward side
     float phF = 0.3 + 0.7 * wvHG(cosS, 0.35) / wvHG(1.0, 0.35);
-    vec3 warm = vec3(1.0, 0.86, 0.72);
-    vec3 fcol = bcShadeFoam(Nf) * uWvLook.w * mix(0.55, 1.15, lit) + uSunColor * warm * uWvLook.z * phF * (0.5 + 0.5 * lit);
+    // white foam: cool sky-lit white on the shadow side, warm sun only on the lit highlights and the backlit glow
+    vec3 sunW = mix(vec3(sunL), uSunColor, 0.45);                    // warm, not orange
+    vec3 coolW = vec3(0.80, 0.88, 0.98) * (0.85 + 0.25 * Nf.y);
+    vec3 fcol = coolW * uWvLook.w + sunW * 0.42 * lit * lit + sunW * uWvLook.z * phF * (0.35 + 0.65 * lit);
     fcol *= fshade * (1.0 + lipLine);
     col = mix(col, fcol, fc);
   }

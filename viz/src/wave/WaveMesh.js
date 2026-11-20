@@ -62,6 +62,19 @@ export function computeClips(fronts) {
   return out;
 }
 
+/** Close-out intensity of a front at t (0..1): ramps in at the break, out after the whitewater has re-formed. Pure. */
+export function closeoutLevel(front, t) {
+  let v = 0;
+  for (const zb of front.breaks || []) {
+    if (!zb.closeout) continue;
+    const span = Math.max(Math.abs(zb.u0 - zb.uPeak), Math.abs(zb.u1 - zb.uPeak)) * FRONT_W / 80;
+    const a = Math.min(1, Math.max(0, (t - zb.tBreak + 1) / 1));
+    const b = Math.min(1, Math.max(0, (zb.tBreak + span + 2.2 * zb.Tb - t) / 1.5));
+    v = Math.max(v, a * b);
+  }
+  return v;
+}
+
 export class WaveMesh {
   constructor(app) {
     this.app = app;
@@ -158,6 +171,7 @@ export class WaveMesh {
       u.uFrontVX.value = f.vx || 0;
       u.uAlpha.value = Math.min(1, Math.max(0, f.alpha));
       u.uClip.value.set(c.xiMin, c.xiMax, c.bandB, c.bandF);
+      u.uFrontCO.value = closeoutLevel(f, t);
       s.colsTex.image.data.set(s.pk.cols);
       s.colsTex.needsUpdate = true;
       s.mesh.visible = true;
