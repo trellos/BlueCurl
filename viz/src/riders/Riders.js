@@ -20,7 +20,7 @@ import { profileInto } from '../wave/profile.js';
 import { pathSpline, pathEval } from '../sim/swell.js';
 import { depthAt } from '../spot/bathymetry.js';
 import {
-  waveFrame, uOfS, sOfU, curlS, tauAt, chooseStyle, buildPlan, evalPlan, sigmaOfH, H_TOE, SIG_BACK, seaLevel,
+  waveFrame, uOfS, sOfU, curlS, tauAt, faceSigma, chooseStyle, buildPlan, evalPlan, sigmaOfH, H_TOE, SIG_BACK, seaLevel,
 } from './plan.js';
 import { KIND_PLAN } from './plan.js';
 import { KINDS, homeSpots, fit, weightedPick, pickHome, idleStep } from './brain.js';
@@ -144,10 +144,12 @@ export class Riders {
         if (u > zb.u0 && u < zb.u1 && (b.homeZi === zb.zi || Math.hypot(h.x - b.wx, h.z - b.wz) <= 25)) tier = 2;
       }
       // last resort: anyone of this zone paddling around inside who can still get on it (a late, inside take-off)
-      if (!tier && (r.state === 'RETURN' || r.state === 'LINEUP') && b.wx > ZONES[zb.zi].lineX - 45) tier = 3;
+      if (!tier && (r.state === 'RETURN' || r.state === 'LINEUP') && b.wx > ZONES[zb.zi].lineX - 58) tier = 3;
       if (!tier) continue;
       const opt = this._option(r, b, f, zb, t, null);
-      if (!opt || (tier === 2 && opt.tauEst > 0.05) || (tier === 3 && opt.tauEst > 0.45)) continue;
+      if (!opt) continue;
+      if (tier === 2 && opt.tauEst > 0.05) tier = 3;                       // too late for a clean take-off
+      if (tier === 3 && (opt.tauEst > 0.45 || b.wx <= ZONES[zb.zi].lineX - 58)) continue;
       [tier1, tier2, tier3][tier - 1].push({ r, b, opt, w: fit(r.kind, zb) * opt.reach });
     }
     // tier 2 (in cool-down / nearly back) and tier 3 (late, from inside) only when nobody fresh can go
@@ -244,7 +246,7 @@ export class Riders {
     b.ride = {
       id: ++this._rideN, front: f, frontId: f.id, zb, zi: zb.zi, wf: opt.wf, slot, opt,
       style: chooseStyle(r.kind, zb), seed: (hash01(f.id, zb.zi * 7 + r.id, seed) * 4294967296) >>> 0,
-      plan: null, tTakeoff: null, maxH: 0, barrelS: 0, barrelSent: false, s: 0, sigma: 0, h: 0, vS: 0,
+      plan: null, dAdj: 0, tTakeoff: null, maxH: 0, barrelS: 0, barrelSent: false, s: 0, sigma: 0, h: 0, vS: 0,
     };
     r.frontId = f.id; r.zi = zb.zi;
     this._setState(r, b, 'POSITION', t);
@@ -296,7 +298,7 @@ export class Riders {
     vs.x += (vx - raw.carry - vs.x) * a; vs.y += (vy - vs.y) * a; vs.z += (vz - vs.z) * a;
     // up target
     let ux = 0, uy = 1, uz = 0;
-    if (raw.n) { ux = 0.7 * raw.n.x; uy = 0.7 * raw.n.y + 0.3; uz = 0.7 * raw.n.z; }
+    if (raw.n) { ux = 0.55 * raw.n.x; uy = 0.55 * raw.n.y + 0.45; uz = 0.55 * raw.n.z; }
     let l = Math.hypot(ux, uy, uz); ux /= l; uy /= l; uz /= l;
     // fwd target
     let fx = vs.x, fy = raw.pitch ? vs.y : 0, fz = vs.z;
@@ -304,10 +306,16 @@ export class Riders {
     l = Math.hypot(fx, fy, fz);
     const f = r.fwd;
     const px = f.x, py = f.y, pz = f.z;
-    if (l > 0.4) { fx /= l; fy /= l; fz /= l; }
-    else if (raw.face) { fx = raw.face[0]; fy = 0; fz = raw.face[1]; }
+    if (l > 0.4) {
+      fx /= l; fy /= l; fz /= l;
+      // pitch limit: a board never points more than ~27° down/up the face (animals ~50° on leaps)
+      const lim = r.kind === 'surfer' ? 0.45 : 0.75;
+      if (Math.abs(fy) > lim) { const hl = Math.hypot(fx, fz) || 1e-6, k = Math.sqrt(1 - lim * lim) / hl; fx *= k; fz *= k; fy = Math.sign(fy) * lim; }
+    } else if (raw.face) { fx = raw.face[0]; fy = 0; fz = raw.face[1]; }
     else { fx = f.x; fy = raw.pitch ? f.y : 0; fz = f.z; }
-    let nx = f.x + (fx - f.x) * a, ny = f.y + (fy - f.y) * a, nz = f.z + (fz - f.z) * a;
+    // turn more slowly when barely moving relative to the wave (a stalled cutback must not snap around)
+    const af = 1 - Math.exp(-dt / (0.1 + 0.3 * Math.max(0, 1 - l / 6)));
+    let nx = f.x + (fx - f.x) * af, ny = f.y + (fy - f.y) * af, nz = f.z + (fz - f.z) * af;
     l = Math.hypot(nx, ny, nz);
     if (l < 1e-3) { nx = f.x - f.z * 0.05; ny = f.y; nz = f.z + f.x * 0.05; l = Math.hypot(nx, ny, nz); }
     f.x = nx / l; f.y = ny / l; f.z = nz / l;
@@ -320,7 +328,7 @@ export class Riders {
     if (raw.bank) {
       const cx = py * f.z - pz * f.y, cy = pz * f.x - px * f.z, cz = px * f.y - py * f.x;
       const w = (cx * ux + cy * uy + cz * uz) / dt;
-      lean = clamp(-Math.atan((w * Math.hypot(vs.x, vs.z)) / 9.81), -0.8, 0.8);
+      lean = clamp(-Math.atan((w * Math.hypot(vs.x, vs.z)) / 9.81), -0.55, 0.55);
     }
     b.lean += (lean - b.lean) * (1 - Math.exp(-dt / 0.15));
     const rx = f.y * uz - f.z * uy, ry = f.z * ux - f.x * uz, rz = f.x * uy - f.y * ux;   // right = fwd × up
@@ -378,7 +386,7 @@ export class Riders {
     let lo = H_TOE, hi = 1;
     for (let i = 0; i < 24; i++) {
       const m = 0.5 * (lo + hi);
-      if (f.x - evalLocal(cs, sigmaOfH(m), LQ).xi < b.wx) lo = m; else hi = m;
+      if (f.x - evalLocal(cs, faceSigma(cs, m), LQ).xi < b.wx) lo = m; else hi = m;
     }
     const hC = 0.5 * (lo + hi);
     R.plan = buildPlan({ wf, kind: r.kind, style: R.style, seed: R.seed, tC: t, sC: sOfU(wf, u), hC,
@@ -395,7 +403,18 @@ export class Riders {
     const R = b.ride, f = R.front, wf = R.wf, P = R.plan;
     if (!swell.fronts.includes(f)) { this._end(r, b, t, 'kickout'); this._toReturn(r, b, t, null); return null; }
     const e = evalPlan(P, t, EP);
-    const s = curlS(wf, t) + e.d;
+    // shoulder / flat water: a column too small to ride → work back toward the pocket (or kick out, below)
+    const Hmin = Math.max(0.5, 0.4 * wf.zb.H), dMin = 0.12 * wf.L;
+    let weak = false;
+    if (r.state === 'RIDE' && !wf.zb.closeout) {
+      const cH = columnState(f, clamp(uOfS(wf, curlS(wf, t) + e.d + R.dAdj), 0.001, 0.999), t, CS).H;
+      if (cH < Hmin) {
+        weak = true;
+        const back = KIND_PLAN[r.kind].back;
+        R.dAdj = Math.max(R.dAdj - back * dt, Math.min(0, dMin - e.d));
+      }
+    }
+    const s = curlS(wf, t) + e.d + R.dAdj;
     const u = clamp(uOfS(wf, s), 0.001, 0.999);
     const tau = tauAt(wf, s, t);
     let h = e.h;
@@ -409,18 +428,18 @@ export class Riders {
       uu = uF + (u - uF) * w;
       const xF = c0.x + c0.vx * tc, cs = columnState(f, uu, t, CS);
       let lo = 0, hi = 1;
-      for (let i = 0; i < 18; i++) { const m = 0.5 * (lo + hi); if (f.x - evalLocal(cs, sigmaOfH(m), LQ).xi < xF) lo = m; else hi = m; }
+      for (let i = 0; i < 18; i++) { const m = 0.5 * (lo + hi); if (f.x - evalLocal(cs, faceSigma(cs, m), LQ).xi < xF) lo = m; else hi = m; }
       h = 0.5 * (lo + hi) + (h - 0.5 * (lo + hi)) * w;
     }
     if (tau > 0.2) h = Math.min(h, 1 - 0.75 * smooth((tau - 0.2) / 0.2));     // never on the lip's underside
-    const sigma = sigmaOfH(h);
+    const sigma = faceSigma(columnState(f, uu, t, CS), h);
     const sm = sampleFront(f, uu, sigma, t);
     // offset (animals): along the normal blended with up
     let ox = sm.nx, oy = sm.ny + 1, oz = sm.nz;
     const ol = Math.hypot(ox, oy, oz) || 1;
     const x = sm.x + (ox / ol) * e.off, y = sm.y + (oy / ol) * e.off, z = sm.z + (oz / ol) * e.off;
     R.dh = R.plan === P && R._hT === t - dt ? (h - R.h) / dt : 0; R._hT = t;
-    R.s = s; R.h = h; R.sigma = sigma; R.vS = wf.vRef + e.dd; R.u = uu;
+    R.s = s; R.h = h; R.sigma = sigma; R.vS = wf.vRef + e.dd - (weak ? KIND_PLAN[r.kind].back : 0); R.u = uu;
     r.u = uu; r.sigma = sigma;
     if (r.state === 'TAKEOFF' && t >= P.tR) { r.state = 'RIDE'; b.tState = t; }
     if (sm.H > R.maxH) R.maxH = sm.H;
@@ -437,7 +456,7 @@ export class Riders {
     // end of ride
     if (tau > TAU_CLOSE) { R.why = 'overtaken'; this._end(r, b, t, 'closeout'); return null; }
     if (r.state === 'RIDE') {
-      R.why = t >= P.tEnd ? 'planned' : s >= wf.sEnd - 2.5 && (t > P.tR + 2 || e.dd > -0.5 * wf.vRef) ? 'peelEnd' : u <= 0.01 || u >= 0.99 ? 'edge'
+      R.why = t >= P.tEnd ? 'planned' : weak && e.d + R.dAdj <= dMin + 0.01 ? 'flat' : s >= wf.sEnd - 2.5 && (t > P.tR + 2 || e.dd > -0.5 * wf.vRef) ? 'peelEnd' : u <= 0.01 || u >= 0.99 ? 'edge'
         : f.x < 15 ? 'shore' : depthAt(x, z) < 0.35 ? 'shallow' : null;
       if (R.why) { this._end(r, b, t, 'kickout'); return null; }
     }

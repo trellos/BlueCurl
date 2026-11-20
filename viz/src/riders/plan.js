@@ -11,6 +11,7 @@
 import { FRONT_W, breakStartTime, mulberry32, zToU } from '../contracts.js';
 import { columnState, evalLocal, ambientGrad } from '../wave/field.js';
 import { profileExtents } from '../wave/profile.js';
+import { SIGMA_CREST, SIGMA_TROUGH } from '../wave/keyframes.js';
 
 export const SIG_TOP = 0.40;     // h = 1: just seaward of the lip landmark (σ_lip ≈ 0.463), top of the face
 export const SIG_BOT = 0.78;     // h = 0: the trough (σ_trough ≈ 0.80)
@@ -20,6 +21,22 @@ export const sigmaOfH = (h) => SIG_BOT - (SIG_BOT - SIG_TOP) * h;
 export const hOfSigma = (s) => (SIG_BOT - s) / (SIG_BOT - SIG_TOP);
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+const FQ = {};
+/**
+ * σ on the face at height fraction h of a column state cs: y = y(trough) + h·(y(crest) − y(trough)), searched on
+ * σ ∈ [SIG_TOP, SIG_BOT] (the face between the lip line and the trough; clamped at both ends). Height-based so
+ * h = 0.4 is 40 % up the face whatever the profile's σ spacing (a soft wave's σ 0.63–0.78 is flat toe water).
+ */
+export function faceSigma(cs, h) {
+  const yB = evalLocal(cs, SIGMA_TROUGH, FQ).y, yC = evalLocal(cs, SIGMA_CREST, FQ).y;
+  const target = yB + h * (yC - yB);
+  if (target >= evalLocal(cs, SIG_TOP, FQ).y) return SIG_TOP;
+  if (target <= evalLocal(cs, SIG_BOT, FQ).y) return SIG_BOT;
+  let lo = SIG_TOP, hi = SIG_BOT;
+  for (let i = 0; i < 16; i++) { const m = 0.5 * (lo + hi); if (evalLocal(cs, m, FQ).y > target) lo = m; else hi = m; }
+  return 0.5 * (lo + hi);
+}
 
 /** Per-kind takeoff dynamics. glide: max along-crest speed on the face while late (m/s); back: how fast a standing
  *  rider can work back toward the curl (relative to the peel); paddle: paddle-in on the face after the catch (s),
@@ -107,7 +124,7 @@ export function buildPlan({ wf, kind, style, seed, tC, sC, hC, tauBias = 0 }) {
   const leap = (hgt) => { const k = knots[knots.length - 1]; arcs.push({ t0: k.t, t1: tk, hgt }); };
   let tube = null;
   // standing: approach segment (rides back to the pocket when caught far down the line, else a short trim)
-  knots.push({ t: tR, d: dPop, h: 0.45, flat: false });
+  knots.push({ t: tR, d: dPop, h: 0.55, flat: false });
   acts.push({ t0: tR, t1: tR + 0.6, act: surfer ? (dPop > 0.9 * L ? 'cutback' : 'trim') : 'swim' });
   tk = tR + 0.6;
 
@@ -117,17 +134,17 @@ export function buildPlan({ wf, kind, style, seed, tC, sC, hC, tauBias = 0 }) {
     add(s, 0.3, surfer ? 'bottomTurn' : 'swim', 0.8);
     while (tk < tEnd + 2) { s += 5 + j(1); add(s, 0.2 + j(0.08), surfer ? 'trim' : 'swim', 1.0 + j(0.2)); }
   } else if (style === 'cruise') {
-    add(-0.35 + j(0.05), 0.22, 'bottomTurn', 1.0 + j(0.1), true);
+    add(-0.35 + j(0.05), 0.35, 'bottomTurn', 1.0 + j(0.1), true);
     while (tk < tEnd + 2) {
-      add(-0.45 + j(0.06), 0.66 + j(0.06), 'trim', 1.5 + j(0.3), true);
-      add(-0.55 + j(0.06), 0.38 + j(0.06), 'trim', 1.5 + j(0.3), true);
+      add(-0.45 + j(0.06), 0.72 + j(0.06), 'trim', 1.5 + j(0.3), true);
+      add(-0.55 + j(0.06), 0.48 + j(0.06), 'trim', 1.5 + j(0.3), true);
     }
   } else if (style === 'carve') {
     while (tk < tEnd + 2) {
-      add(-0.3 + j(0.05), 0.08, 'bottomTurn', 0.75 + j(0.1), true);
-      add(-0.48 + j(0.05), 0.97, 'lipHit', 0.55 + j(0.08), true);
-      add(-0.62 + j(0.05), 0.55 + j(0.05), 'cutback', 0.9 + j(0.1));
-      add(-0.25 + j(0.04), 0.4, 'trim', 0.55 + j(0.08));
+      add(-0.3 + j(0.05), 0.3, 'bottomTurn', 0.75 + j(0.1), true);
+      add(-0.48 + j(0.05), 0.95, 'lipHit', 0.55 + j(0.08), true);
+      add(-0.62 + j(0.05), 0.62 + j(0.05), 'cutback', 1.1 + j(0.1));
+      add(-0.28 + j(0.04), 0.5, 'trim', 0.8 + j(0.08));
     }
   } else if (style === 'tube') {
     // squeeze the tube into what is left of the peel (the rider moves down the line at about vPeel)
@@ -135,43 +152,43 @@ export function buildPlan({ wf, kind, style, seed, tC, sC, hC, tauBias = 0 }) {
     const left = (wf.sEnd - 4 - (curlS(wf, tR) + dPop)) / Math.max(1, vRef);
     const q = clamp((left - 0.3) / (3.8 + hold), 0.45, 1);
     const sw = (a) => (surfer ? a : 'swim');
-    add(-0.08, 0.12, sw('bottomTurn'), 0.8 * q, true);
+    add(-0.08, 0.3, sw('bottomTurn'), 0.8 * q, true);
+    const tIn = tk;                                           // stall into the pocket: the tube window starts here
     add(0.22, 0.2, sw('crouch'), 1.0 * q, false, 2.5);
-    const tIn = tk;
     add(0.52, 0.12, sw('crouch'), hold * q, true, 2.5);       // in the barrel (h low = the tube floor)
     add(0.5, 0.12, sw('crouch'), 1.1 * q, true);              // still inside, racing for the exit
     const tOut = tk;
     add(0.05, 0.35, surfer ? 'trim' : 'jump', 0.9 * q, false, 2.5);   // spat out
     if (!surfer) leap(1.6 + j(0.3));                          // dolphin: spat out with a leap
-    tube = { t0: tIn - 0.5, t1: tOut + 0.4 };
+    tube = { t0: tIn, t1: tOut + 0.6 };
     const carve = surfer && zb.steep >= 0.6;
     while (tk < tEnd + 2) {
       if (carve) {
-        add(-0.3 + j(0.05), 0.08, 'bottomTurn', 0.75 + j(0.1), true);
+        add(-0.3 + j(0.05), 0.3, 'bottomTurn', 0.75 + j(0.1), true);
         add(-0.5 + j(0.05), 0.95, 'lipHit', 0.55 + j(0.08), true);
-        add(-0.65 + j(0.05), 0.55, 'cutback', 0.9 + j(0.1));
-        add(-0.3, 0.4, 'trim', 0.55);
+        add(-0.65 + j(0.05), 0.62, 'cutback', 0.9 + j(0.1));
+        add(-0.3, 0.48, 'trim', 0.55);
       } else if (surfer) {
-        add(-0.45 + j(0.06), 0.62 + j(0.05), 'trim', 1.3 + j(0.2), true);
-        add(-0.55 + j(0.06), 0.35 + j(0.05), 'trim', 1.3 + j(0.2), true);
+        add(-0.45 + j(0.06), 0.7 + j(0.05), 'trim', 1.3 + j(0.2), true);
+        add(-0.55 + j(0.06), 0.45 + j(0.05), 'trim', 1.3 + j(0.2), true);
       } else {
-        add(-0.4 + j(0.06), 0.3, 'swim', 0.9 + j(0.15));
+        add(-0.4 + j(0.06), 0.42, 'swim', 0.9 + j(0.15));
         add(-0.5 + j(0.06), 0.62, 'jump', 1.0 + j(0.15)); leap(1.4 + j(0.4));
       }
     }
   } else if (style === 'porpoise') {
-    add(-0.3 + j(0.05), 0.2, 'swim', 0.8 + j(0.1));
+    add(-0.3 + j(0.05), 0.4, 'swim', 0.8 + j(0.1));
     while (tk < tEnd + 2) {                                   // a leap out of the face every ~1.6–2.3 s
       add(-0.48 + j(0.08), 0.62 + j(0.08), 'jump', 0.95 + j(0.1)); leap(1.3 + 0.25 * zb.H + j(0.3));
-      add(-0.38 + j(0.08), 0.3 + j(0.1), 'swim', 0.95 + j(0.3));
+      add(-0.38 + j(0.08), 0.45 + j(0.08), 'swim', 0.95 + j(0.3));
     }
   } else {                                                    // breach (seals): bodysurf low with breaches / rolls
-    add(-0.3 + j(0.05), 0.18, 'swim', 1.0 + j(0.1));
+    add(-0.3 + j(0.05), 0.38, 'swim', 1.0 + j(0.1));
     let n = 0;
     while (tk < tEnd + 2) {
-      add(-0.42 + j(0.06), 0.3 + j(0.06), 'swim', 1.1 + j(0.25));
+      add(-0.42 + j(0.06), 0.42 + j(0.06), 'swim', 1.1 + j(0.25));
       if (n++ % 3 !== 1) { add(-0.38 + j(0.05), 0.42, 'jump', 0.8 + j(0.1)); leap(0.9 + j(0.25)); }
-      else add(-0.36 + j(0.05), 0.24, 'roll', 1.0 + j(0.1));
+      else add(-0.36 + j(0.05), 0.4, 'roll', 1.0 + j(0.1));
     }
   }
   knots.push({ t: tk, d: knots[knots.length - 1].d, h: knots[knots.length - 1].h, flat: true });
