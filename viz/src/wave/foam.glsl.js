@@ -43,14 +43,19 @@ vec4 wvFlowTex(vec2 q, vec2 dir, float spd, float t) {
  * Foam coverage 0..1 and (out) lip-line strength (for extra brightness).
  * tauU: unclamped break age in Tb units (<0 before the break); sg: sigma; xi, yl: local cross-section (m);
  * H column height; curl, mush shape; Tb s; vx crest speed (m/s, negative); P world position; xiMin back edge of
- * the mesh (local xi, m); N shading normal; alpha front fade; t sim time. shade: brightness relief; height: foam relief height 0..1 (bump).
+ * the mesh (local xi, m), xiMax front edge; N shading normal; alpha front fade; t sim time. shade: brightness relief; height: foam relief height 0..1 (bump).
  */
 float wvFoam(float tauU, float sg, float xi, float yl, float H, float curl, float mush, float Tb, float vx,
-             vec3 P, vec3 N, float xiMin, float alpha, float t, out float lipLine, out float shade, out float height) {
+             vec3 P, vec3 N, float xiMin, float xiMax, float alpha, float t, out float lipLine, out float shade, out float height) {
   lipLine = 0.0; shade = 1.0; height = 0.0;
   float Hg = smoothstep(0.2, 0.9, H) * alpha;
-  if (Hg <= 0.0 || tauU < -0.05) return 0.0;
+  if (Hg <= 0.0 || tauU < -0.15) return 0.0;
   float tile = uFoamTune.x;
+  // ragged envelope edges: jitter the break phase (edges along the crest) and fade toward both mesh clip edges
+  // with noise (edges across the profile) — no straight-edged slabs where a peel ends or a neighbour's cut falls
+  float jn = bcVnoise(P.xz * 0.31 + 3.1) - 0.5, jn2 = bcVnoise(P.xz * 0.9 + 7.7) - 0.5;
+  tauU += 0.14 * jn + 0.05 * jn2;
+  float edgeF = smoothstep(0.0, 1.0, (min(xi - xiMin, xiMax - xi) - 1.0) / 7.0 + 0.45 * jn + 0.2 * jn2);
 
   // ---- envelopes (wave coordinates)
   float wThrow = smoothstep(0.06, 0.22, tauU) * (1.0 - smoothstep(0.66, 0.8, tauU));   // lip open until it lands (~0.78)
@@ -76,6 +81,7 @@ float wvFoam(float tauU, float sg, float xi, float yl, float H, float curl, floa
   float trail = dep * exp(-(tauU - tauH) * Tb / uFoamTune.y) * (1.0 - front) * smoothstep(xiMin, xiMin + 8.0, xi);
   float carpet = smoothstep(0.9, 1.25, tauU) * (1.0 - smoothstep(1.7, 2.6, tauU)) * smoothstep(xiMin, xiMin + 8.0, xi);
 
+  spill *= edgeF; bore *= edgeF; trail *= edgeF; carpet *= edgeF;
   float sumE = lip + feather + spill + bore + trail + carpet;
   if (sumE < 1e-3) return 0.0;
 

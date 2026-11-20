@@ -275,7 +275,7 @@ void main() {
 
   // ---- foam
   float lipLine, fshade, fh;
-  float fc = wvFoam(tauU, sg, xi, yl, H, vC.x, vC.y, vC.z, uFrontVX, vP, Nv, uClip.x, uAlpha, uTime, lipLine, fshade, fh);
+  float fc = wvFoam(tauU, sg, xi, yl, H, vC.x, vC.y, vC.z, uFrontVX, vP, Nv, uClip.x, uClip.y, uAlpha, uTime, lipLine, fshade, fh);
   float fok = smoothstep(0.0, 0.33, vFoamOK) * smoothstep(0.0, 1.0, vFoamOK);   // 0 on the jump strip, soft ramp beyond
   float dzE = min(vP.z - (${FRONT_Z0.toFixed(1)}), ${(FRONT_Z0 + FRONT_W).toFixed(1)} - vP.z);
   fok *= smoothstep(2.0, 22.0, dzE);               // fade out toward the crest ends (no hard foam edge at the mesh end)

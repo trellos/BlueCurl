@@ -111,6 +111,8 @@ export class WaveMesh {
     this.debug = { nospray: dbg.includes('nospray'), nowave: dbg.includes('nowave') };
     if (dbg.includes('nofoam')) { this.look.uFoamTune.value.z = 0; this.look.uFoamTune.value.w = 0; }
     if (this.debug.nowave) this.group.visible = false;
+    const m = /dbg([0-9])/.exec(dbg);
+    if (m) this.look.uWvDebug.value = +m[1];
     this._boxes = [];
   }
 
