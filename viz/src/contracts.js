@@ -77,6 +77,10 @@ export const DEFAULT_CFG = {
   beat: { volume: 0.7, mute: false, maxLevel: 8, entryMeasures: 4 },   // audio volume/mute are output-only (no sim effect)
   guitar: { key: 'C major' },  // display/log only: lane mapping happens before the input log (see GuitarMapper)
   birds: { perNote: 1, flock: 16, max: 96 },
+  // milestone 3 (day cycle + key flock + fish)
+  day: { measures: 64, startPhase: 0.06, speed: 1 },   // one sunrise→sunset cycle per 64 measures; startPhase ≈ today's dawn look
+  keyFlock: { birds: 72, seconds: 6 },                 // key-change flock spelling the key ('E', 'Cm', 'F#m', 'Bb')
+  fish: { beats: 4 },                                  // a fish swims this many beats in the shallows, then fades into deep water
 };
 export const intervalSec = (cfg) => cfg.bars * 4 * 60 / cfg.bpm;
 
@@ -296,6 +300,35 @@ export const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8,
  *   accented 1). Output only — never feeds the sim. Scheduled from sim time with a constant latency; silent while
  *   paused and in capture mode.
  * Step order: input → swell → beat → riders(swell, beat) → fx → camera.
+ */
+
+// ---------------------------------------------------------------- day cycle (src/sky/dayCycle.js + consumers, WP14)
+/**
+ * One cycle = sunrise → sunset, cfg.day.measures measures long (64 → 128 s at 120 bpm), measured on the Beat bar
+ * clock (bpm changes speed it up/slow it down; never jumps): phase = frac(startPhase + (measure + frac) / measures).
+ * phase 0: sun a few degrees below the eastern horizon (dim twilight) → rises in front of the lineup camera → high
+ * arc → sets BEHIND the default camera (west) → phase 1: a few degrees below the western horizon. The wrap 1 → 0 is
+ * invisible: every light/colour quantity at phase 1 equals phase 0 (same dim twilight), only the hidden sun moves.
+ * dayCycle.js (pure, no three.js required for the maths): dayPhase(beat, t, cfg) → phase; sunAt(phase) →
+ *   { elevationDeg, azimuthDeg, dir:[x,y,z], color:[r,g,b] (linear, HDR), intensity, ambient:[r,g,b], skyTint…, exposure }
+ * app.sun (updated once per rendered frame BEFORE visuals update, from app.beat + simTime):
+ *   { phase, elevationDeg, azimuthDeg, dir: THREE.Vector3 (same object as waterUniforms.uSunDir), color: THREE.Color,
+ *     intensity, ambient: THREE.Color }
+ * Every consumer (sky, envMap, ocean/wave/foam shading, sun light + shadows, fog/aerial perspective, post grade, fx,
+ * riders' rim light) reads app.sun / the shared uniforms — no hard-coded dawn constants left. Pure function of
+ * (phase): captures stay deterministic; anything cached (envMap, sky LUT) is rebuilt on a QUANTISED phase step, never
+ * on frame count or wall time.
+ */
+
+// ---------------------------------------------------------------- key flock + beat fish (src/fx/*, WP15)
+/**
+ * Key flock: whenever cfg 'guitar.key' changes (cfg events are applied before the step → Fx.step sees app.cfg change on
+ * the same step in live play and replays), cfg.keyFlock.birds birds flutter across the main view in formation
+ * spelling the key as thin block letters: tonic (+ '#'/'b') + 'm' for minor ('E', 'Cm', 'F#m', 'Bb').
+ * Fish: each Beat 'downbeat' event with change +1 → a fish appears in the shallows (inside zone, visible in the lineup
+ * camera) under the water swimming right (+z = screen right in the lineup view); change −1 → swimming left (−z).
+ * It swims cfg.fish.beats beats, then turns seaward and fades into deeper water. Several may be alive at once.
+ * Both are pure functions of (event time, seed, t) and read app.sun for lighting.
  */
 
 // ---------------------------------------------------------------- note splash + birds (src/fx/*, WP12)
