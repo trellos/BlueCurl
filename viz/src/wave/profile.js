@@ -9,8 +9,9 @@
 //   xi    > 0 shoreward (world -X). dxi, dy = d/dsigma. thick = water-sheet thickness (m) along the inward
 //         normal, capped at THICK_CAP·H (lip translucency hint; approximate under the horizontal warps).
 //
-// Shape: families are blended point-wise: wPLUNGE = curl(1-mush)², wSPILL = mush, wWALL = 1 - wPLUNGE - wSPILL
-//   (mush kills the curl faster than it softens, which keeps every blend free of self-intersection).
+// Shape: families are blended point-wise: wPLUNGE = curl·max(0, 1-2·mush)², wSPILL = mush, wWALL = 1 - wPLUNGE - wSPILL.
+//   Mush removes the plunge entirely by mush 0.5 (C1 in mush) — plunge and spill are never mixed in quantity, which
+//   (with the crash keys) keeps every blend free of self-intersection (test: wave-profile "never self-intersect").
 //   steep compresses (1) or widens (0) the crest/face horizontally around x = STEEP_C:
 //   x' = x + (kS-1)(x-c)·exp(-((x-c)/R)²), kS = 1.3 - 0.55·steep (monotone, so no self-intersection).
 //
@@ -67,7 +68,7 @@ function sigmaWeights(sigma) {
  */
 export function profileKeyUnits(out, tau, sigma, curl, mush) {
   curl = clamp01(curl); mush = clamp01(mush);
-  const wf1 = curl * (1 - mush) * (1 - mush), wf2 = mush, wf0 = 1 - wf1 - wf2;
+  const pm = Math.max(0, 1 - 2 * mush), wf1 = curl * pm * pm, wf2 = mush, wf0 = 1 - wf1 - wf2;
   tauWeights(tau); sigmaWeights(sigma);
   let x = 0, y = 0, dx = 0, dy = 0, th = 0;
   for (let a = 0; a < 4; a++) {

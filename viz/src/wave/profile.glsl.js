@@ -1,35 +1,56 @@
 // BlueCurl Swell — GLSL mirror of profile.js + contracts.breakStartTime/localTau + field.sampleFront (WP4a).
-// Same math as the JS (float32 instead of float64); test/wave-parity.mjs checks < 1e-3 m / 1e-3 normal.
+// Same math as the JS (float32 vs float64). test/wave-parity.mjs: GPU vs JS < 1e-3 m position, < 1e-3 normal.
 //
-// INCLUDE ORDER (WebGL2 / GLSL ES 3.00, works in vertex or fragment stage):
-//   AMBIENT_GLSL (contracts.js: uniform vec4 uAmbient, bcAmbient)  then  PROFILE_GLSL.
+// =============================================== WP4b QUICK START (everything the renderer needs) ===============
+// EXPORTS: PROFILE_GLSL (string), packFront(front, tRef, out?), makeKeyTextureSpec(), UNIFORM_NAMES, MAX_BREAKS = 3.
 //
-// UNIFORMS (one front per material / draw):
-//   sampler2D uKeyTex      keyframes: RGBA32F DataTexture(KEY_DATA, KEY_TEX_W, KEY_TEX_H), NearestFilter,
-//                          no mipmaps (shared by all fronts; see makeKeyTextureSpec()).
-//   sampler2D uFrontCols   NCOLS×1 RGBA32F DataTexture(packed.cols), NearestFilter: (H, steep, curl, mush);
-//                          column c sits at u = (c+0.5)/NCOLS. Upload every frame (needsUpdate = true).
-//   vec4  uFrontZB[9]      packed ZoneBreaks (3 vec4 each, max 3, zone order) = packed.zb
-//   int   uFrontNZB        number of breaks = packed.nzb
-//   float uFrontX          crest world x at the current t = packed.frontX
-//   float uFrontTRef       time origin of the packed break times = packed.tRef. Every time argument below is
-//                          LOCAL time  tl = t - uFrontTRef  (compute in JS doubles; keeps float32 precise for
-//                          hours-long sessions). Ambient is evaluated at tl + uFrontTRef.
-//   vec4  uAmbient         (contracts AMBIENT_GLSL) amp, period, amp2, period2
+// ONCE (shared by all fronts):
+//   const ks = makeKeyTextureSpec();   // { data: Float32Array, width: 96, height: 33 }
+//   keyTex = new THREE.DataTexture(ks.data, ks.width, ks.height, THREE.RGBAFormat, THREE.FloatType);
+//   keyTex.minFilter = keyTex.magFilter = THREE.NearestFilter; keyTex.generateMipmaps = false; keyTex.needsUpdate = true;
+//   Mesh grid: attribute (u, sigma), e.g. 200 columns in u ∈ [0,1] × 64 rows in sigma ∈ [0,1], UNIFORM steps — the
+//   key points are already concentrated on crest/lip/tube (sigma 0.25…0.80). Draw double-sided (tube interior).
+//   Shader source: AMBIENT_GLSL (contracts.js) first, then PROFILE_GLSL. WebGL2 / GLSL ES 3.00, any stage.
 //
-// FUNCTIONS
+// PER FRONT (one material / uniform set per alive FrontState), EVERY FRAME at sim time t:
+//   tRef = front.tPoint (any value near t works; keeps float32 times small)
+//   pk = packFront(front, tRef, pk)          // reuses pk's arrays when passed
+//   colsTex.image.data.set(pk.cols); colsTex.needsUpdate = true   // NCOLS×1 RGBA32F DataTexture, NearestFilter
+//   uniforms:
+//     sampler2D uKeyTex      keyTex (shared)
+//     sampler2D uFrontCols   colsTex: texel c = (H m, steep, curl, mush) of column c, which sits at u = (c+0.5)/NCOLS
+//     vec4  uFrontZB[9]      pk.zb (Float32Array 36) — break b (zone order) uses vec4s 3b..3b+2:
+//                              [tBreak - tRef, uPeak, u0, u1]  [dir, vPeel, Tb, peelLen]  [backLen, closeout 0|1, sections, zi]
+//                              (Infinity stored as 1e30)
+//     int   uFrontNZB        pk.nzb (0..3)
+//     float uFrontX          pk.frontX = front.x at t
+//     float uFrontTRef       pk.tRef
+//     float uFrontTime       (yours) t - tRef, computed in JS doubles — pass it as the tl argument below
+//     vec4  uAmbient         (cfg.ambient.amp, .period, .amp2, .period2)  — from AMBIENT_GLSL
+//   front.alpha (horizon fade-in / shore fade-out) is NOT applied here: fade it in the material.
+//
+// VERTEX SHADER:
+//   BCSample s = bcSampleFront(u, sigma, uFrontTime);
+//   gl_Position = projectionMatrix * viewMatrix * vec4(s.pos, 1.0);   // s.pos is WORLD space: no model matrix
+//   BCSample { vec3 pos;   world position incl. ambient swell (x = uFrontX - xi, z = FRONT_Z0 + u·FRONT_W)
+//              vec3 nrm;   unit normal pointing out of the water (down into the tube under a thrown lip)
+//              float tau;  break phase (contracts.localTau): <0 approach, 0..1 break, 1..2 re-form
+//              float zi;   zone index of that phase (-1 = not broken yet)
+//              float H;    column height (m)
+//              float thick;water-sheet thickness along -nrm (m), capped at 2.5·H — feed shadeWater's thickHint
+//              float xi;   cross-section coordinate (m, + shoreward)   float yl;  height without ambient (m) }
+//   Cost: 3 column evaluations (centre + u±DU for the normal), 48 texelFetch each (96 while re-forming into a
+//   later zone). Foam/spray helpers: BC_SIGMA_CREST / BC_SIGMA_LIP (lip tip) / BC_SIGMA_TROUGH, bcColumn(u, tl).
+//
+// LOWER-LEVEL FUNCTIONS
 //   float  bcBreakStart(int b, float u)                 contracts.breakStartTime (local time, BC_NEVER = never)
 //   vec3   bcLocalTau(float u, float tl)                 contracts.localTau → (tau, zi, tStart)
 //   BCCol  bcColumn(float u, float tl)                   cols + tau + shape phase (field.columnState)
 //   vec4   bcProfile(float tau, float sigma, float H, vec3 shape)   → (xi, y, dxi/dsigma, dy/dsigma), metres
 //   void   bcProfileFull(tau, sigma, H, shape, out vec4 P, out float thick)
 //   vec4   bcLocal(float u, float sigma, float tl, out float thick, out BCCol col)  (field.evalLocal)
-//   BCSample bcSampleFront(float u, float sigma, float tl)  world position (incl. ambient), unit normal
-//          (out of the water, into the tube under the lip), tau, zi, H, thick (m), xi, yl.
-//
-// Vertex-shader use (WP4b): grid attribute (u, sigma) — i along the profile = sigma (uniform steps are already
-// lip-refined), j along the crest = u — then  BCSample s = bcSampleFront(u, sigma, uFrontTime);
-// gl_Position = projectionMatrix * viewMatrix * vec4(s.pos, 1.0);  (pos is world space; use no model matrix)
+// CPU side: field.js (sampleFront / surfaceHeight / barrel / lip) is the exact JS mirror for riders and camera.
+// ===============================================================================================================
 
 import { NCOLS, FRONT_W, FRONT_Z0 } from '../contracts.js';
 import { NPTS, NKEY, NFAM, KEY_TAUS, KEY_DATA, KEY_TEX_W, KEY_TEX_H, CORE_BACK, CORE_FRONT, THICK_CAP,
@@ -101,8 +122,8 @@ float bcBreakStart(int b, float u) {
   if (s < 0.0) { float back = -s; return back > C.x ? BC_NEVER : A.x + back / (0.5 * B.y); }
   if (s > B.w) return BC_NEVER;
   if (C.z > 1.0) {
-    float seg = B.w / C.z, k = min(C.z - 1.0, floor(s / seg));
-    return A.x + (k * seg) / B.y + (s - k * seg) / (4.0 * B.y);
+    float w = 6.2831853 / (B.w / C.z);                     // smooth monotone staircase (contracts)
+    return A.x + (s - 0.75 * sin(w * s) / w) / B.y;
   }
   return A.x + s / B.y;
 }
@@ -156,7 +177,7 @@ vec3 bcLocalTau(float u, float tl) { BCCol c = bcColumn(u, tl); return vec3(c.ta
 
 void bcProfileFull(float tau, float sigma, float H, vec3 shape, out vec4 P, out float thick) {
   float steep = clamp(shape.x, 0.0, 1.0), curl = clamp(shape.y, 0.0, 1.0), mush = clamp(shape.z, 0.0, 1.0);
-  float wf1 = curl * (1.0 - mush) * (1.0 - mush), wf2 = mush, wf0 = 1.0 - wf1 - wf2;
+  float pm = max(0.0, 1.0 - 2.0 * mush), wf1 = curl * pm * pm, wf2 = mush, wf0 = 1.0 - wf1 - wf2;
   // tau: non-uniform cubic Hermite over keys (zero tangent at both end keys)
   tau = clamp(tau, -1.0, 2.0);
   int k = 0;

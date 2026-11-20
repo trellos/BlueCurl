@@ -63,6 +63,15 @@ test('end conditions: y = 0 and zero slope at both ends, ends at the documented 
     assert.ok(Math.abs(profile(tau, 0.005, H, sh).y) < 1e-3 * H && Math.abs(profile(tau, 0.995, H, sh).y) < 1e-3 * H);
   }
   assert.ok(profileExtents(6).back <= -44 && profileExtents(6).front >= 34);
+  // up to (and a bit beyond) the 6 m outer-reef waves the core stays inside the extents: the cubic tails never go negative,
+  // xi is monotone along the flat tails and the crest region keeps its true aspect (Sx ≈ H)
+  for (const H of [4, 5, 6, 7]) {
+    const sx = Math.sqrt(H * H + 1);
+    assert.ok(18 + 4.5 * H >= 6 * sx && 12 + 3.8 * H >= 5 * sx, 'core fits the extents at H ' + H);
+    let prev = -Infinity;
+    for (let i = 0; i <= 200; i++) { const p = profile(-1, i / 200, H, SHAPES.barrel); assert.ok(p.xi > prev); prev = p.xi; }
+    assert.ok(Math.abs(maxY(0.33, H, SHAPES.wall) - H) < 0.15 * H, 'crest height scales with H');
+  }
   assert.ok(profileExtents(0.3).back < -18, 'small swell keeps a wide lump');
 });
 
@@ -83,14 +92,20 @@ test('plunge with high curl overhangs (a tube); a wall barely does; mush removes
   for (const curl of [0, 0.25, 0.5, 0.75, 1]) { const ov = overhang(0.62, H, { steep: 0.8, curl, mush: 0 }); assert.ok(ov >= p2); p2 = ov; }
 });
 
-// Known: during the crash (tau ≈ 0.79–0.84) a high-curl, part-mush blend (curl ≥ 0.75, mush 0.25–0.4) can fold the
-// lip underside onto itself for ≤ 0.05 tau. Everything else must stay simple.
-test('blended profiles never self-intersect (outside the crash window for part-mush tubes)', () => {
+test('blended profiles never self-intersect (all shapes, all tau)', () => {
   for (const curl of [0, 0.25, 0.5, 0.75, 1]) for (const mush of [0, 0.25, 0.5, 0.75, 1]) for (const steep of [0.5]) {   // steep is a monotone x-warp: cannot create crossings
     for (let tau = -1; tau <= 2.0001; tau += 0.01) {
-      if (tau > 0.78 && tau < 0.85 && mush > 0 && mush < 0.5) continue;
       const P = []; for (let i = 0; i <= 380; i++) { const p = profile(tau, i / 380, 2, { steep, curl, mush }); P.push([p.xi, p.y]); }
-      assert.equal(selfIntersects(P), null, `self-intersection at tau ${tau.toFixed(2)} curl ${curl} mush ${mush} steep ${steep}`);
+      assert.equal(selfIntersects(P), null, `self-intersection at tau ${tau.toFixed(2)} curl ${curl} mush ${mush}`);
+    }
+  }
+});
+
+test('crash window (former lip-underside fold): high curl + part mush around tau 0.8 stays simple', () => {
+  for (let curl = 0.7; curl <= 1.0001; curl += 0.05) for (let mush = 0; mush <= 0.5001; mush += 0.03) {
+    for (let tau = 0.74; tau <= 0.9; tau += 0.002) {
+      const P = []; for (let i = 0; i <= 380; i++) { const p = profile(tau, i / 380, 3, { steep: 0.7, curl, mush }); P.push([p.xi, p.y]); }
+      assert.equal(selfIntersects(P), null, `fold at tau ${tau.toFixed(3)} curl ${curl.toFixed(2)} mush ${mush.toFixed(2)}`);
     }
   }
 });
