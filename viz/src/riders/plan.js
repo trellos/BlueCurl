@@ -21,16 +21,17 @@ export const hOfSigma = (s) => (SIG_BOT - s) / (SIG_BOT - SIG_TOP);
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
-/** Per-kind takeoff dynamics. glide: max along-crest speed on the face (m/s); wait: drift toward the curl while
- *  waiting on the shoulder; depth: how deep an animal swims inside the face. */
+/** Per-kind takeoff dynamics. glide: max along-crest speed on the face while late (m/s); back: how fast a standing
+ *  rider can work back toward the curl (relative to the peel); paddle: paddle-in on the face after the catch (s),
+ *  then popDur to stand (≤ ~1 s from the catch to standing); depth: how deep an animal swims inside the face. */
 export const KIND_PLAN = {
-  surfer:  { glide: 9,  wait: 4.0, tauPop: -0.35, popDur: 0.45, depth: 0 },
-  dolphin: { glide: 16, wait: 8.0, tauPop: -0.30, popDur: 0.35, depth: 0.45 },
-  seal:    { glide: 8,  wait: 3.0, tauPop: -0.30, popDur: 0.40, depth: 0.2 },
+  surfer:  { glide: 9,  back: 6,  paddle: 0.5,  tauPop: -0.35, popDur: 0.45, depth: 0 },
+  dolphin: { glide: 16, back: 10, paddle: 0.35, tauPop: -0.30, popDur: 0.35, depth: 0.45 },
+  seal:    { glide: 8,  back: 5,  paddle: 0.45, tauPop: -0.30, popDur: 0.40, depth: 0.2 },
 };
 
-/** Ride length (s after the pop) per style: [base, jitter]. The peel end or a close-out usually comes first. */
-const RIDE_LEN = { cruise: [6.5, 1.5], carve: [8, 1.5], tube: [7.5, 1], porpoise: [6, 1.5], breach: [6, 1.5] };
+/** Planned ride length (s after the pop): [base, jitter]. Long on purpose: the peel end normally ends the ride. */
+const RIDE_LEN = { cruise: [13, 1.5], carve: [14, 1.5], tube: [14, 1], porpoise: [12, 1.5], breach: [12, 1.5] };
 
 // ------------------------------------------------------------------ wave frame
 /** Wave frame of a ZoneBreak ridden in direction rd. sEnd = where the ride must be over (peel end / zone edge). */
@@ -74,24 +75,14 @@ export function buildPlan({ wf, kind, style, seed, tC, sC, hC, tauBias = 0 }) {
   const dC = sC - curlS(wf, tC);
   knots.push({ t: tC, d: dC, h: hC, flat: false });
 
-  // ---- takeoff: wait on the shoulder (or race from behind) until the curl is just behind, then pop
-  let T, dPop;
-  if (zb.closeout) {
-    const tS = breakStartTime(zb, uOfS(wf, sC));
-    T = clamp((Number.isFinite(tS) ? tS - 0.4 * zb.Tb : tC) - tC, 0.6, 4);
-    dPop = dC - K.wait * 0.3 * T;
-  } else {
-    const tauPop = (style === 'tube' ? -0.15 : K.tauPop) + 0.5 * tauBias;
-    const want = -tauPop * L, g0 = want - dC;
-    if (g0 < 0) {                                              // ahead of the pop point: let the curl come
-      T = -g0 / (vRef + K.wait);
-      if (T > 4) T = Math.max(4, -g0 / (vRef + K.glide));
-      T = clamp(T, 0.6, 6);
-      dPop = Math.max(want, dC - (vRef + K.glide) * T);
-    } else {                                                   // late: race forward along the face
-      T = K.glide > vRef ? clamp(g0 / (K.glide - vRef), 0.6, 3) : 0.6;
-      dPop = Math.min(want, dC + (K.glide - vRef) * T);
-    }
+  // ---- takeoff: a short paddle-in on the face, then pop. A rider caught far down the line stands up anyway and
+  // rides back toward the pocket (the approach below); one caught late races forward along the face.
+  const T = K.paddle;
+  let dPop;
+  if (zb.closeout) dPop = dC - 1.5 * T;
+  else {
+    const want = -((style === 'tube' ? -0.15 : K.tauPop) + 0.5 * tauBias) * L;
+    dPop = want < dC ? Math.max(want, dC - (vRef + K.back) * T) : Math.min(want, dC + (K.glide - vRef) * T);
   }
   const tPop = tC + T;
   knots.push({ t: tPop, d: dPop, h: 0.8, flat: true });
@@ -104,9 +95,10 @@ export function buildPlan({ wf, kind, style, seed, tC, sC, hC, tauBias = 0 }) {
   const tEnd = tR + RIDE_LEN[style][0] + j(RIDE_LEN[style][1]);
   // forward speed relative to the curl is limited (a rider caught behind it needs time to get back ahead)
   const ddMax = Math.max(4, 0.5 * (zb.closeout ? 8 : vRef)) * (kind === 'dolphin' ? 1.6 : 1);
+  const ddBack = (zb.closeout ? 5 : vRef) + K.back;          // working back toward the curl (beyond vRef: reversing)
   const add = (tau, h, act, dur, flat = false, fast = 1) => {
     const d = zb.closeout ? tau : -(tau + tauBias) * L, p = knots[knots.length - 1];
-    const need = (d - p.d) / (ddMax * fast);
+    const need = d > p.d ? (d - p.d) / (ddMax * fast) : (p.d - d) / (ddBack * fast);
     if (tk - p.t < need) { const sh = need - (tk - p.t); tk += sh; acts[acts.length - 1].t1 += sh; }
     knots.push({ t: tk, d, h: clamp(h, 0, 1), flat });
     acts.push({ t0: tk, t1: tk + dur, act });
@@ -114,6 +106,10 @@ export function buildPlan({ wf, kind, style, seed, tC, sC, hC, tauBias = 0 }) {
   };
   const leap = (hgt) => { const k = knots[knots.length - 1]; arcs.push({ t0: k.t, t1: tk, hgt }); };
   let tube = null;
+  // standing: approach segment (rides back to the pocket when caught far down the line, else a short trim)
+  knots.push({ t: tR, d: dPop, h: 0.45, flat: false });
+  acts.push({ t0: tR, t1: tR + 0.6, act: surfer ? (dPop > 0.9 * L ? 'cutback' : 'trim') : 'swim' });
+  tk = tR + 0.6;
 
   if (zb.closeout) {
     // nothing to ride: drop and angle down the line until the bore catches up (CLOSEOUT ends it)
@@ -121,17 +117,17 @@ export function buildPlan({ wf, kind, style, seed, tC, sC, hC, tauBias = 0 }) {
     add(s, 0.3, surfer ? 'bottomTurn' : 'swim', 0.8);
     while (tk < tEnd + 2) { s += 5 + j(1); add(s, 0.2 + j(0.08), surfer ? 'trim' : 'swim', 1.0 + j(0.2)); }
   } else if (style === 'cruise') {
-    add(-0.42 + j(0.05), 0.22, 'bottomTurn', 1.0 + j(0.1), true);
+    add(-0.35 + j(0.05), 0.22, 'bottomTurn', 1.0 + j(0.1), true);
     while (tk < tEnd + 2) {
-      add(-0.6 + j(0.08), 0.66 + j(0.06), 'trim', 1.5 + j(0.3), true);
-      add(-0.72 + j(0.08), 0.38 + j(0.06), 'trim', 1.5 + j(0.3), true);
+      add(-0.45 + j(0.06), 0.66 + j(0.06), 'trim', 1.5 + j(0.3), true);
+      add(-0.55 + j(0.06), 0.38 + j(0.06), 'trim', 1.5 + j(0.3), true);
     }
   } else if (style === 'carve') {
     while (tk < tEnd + 2) {
       add(-0.3 + j(0.05), 0.08, 'bottomTurn', 0.75 + j(0.1), true);
-      add(-0.5 + j(0.05), 0.97, 'lipHit', 0.55 + j(0.08), true);
-      add(-0.7 + j(0.05), 0.55 + j(0.05), 'cutback', 0.9 + j(0.1));
-      add(-0.3 + j(0.04), 0.4, 'trim', 0.55 + j(0.08));
+      add(-0.48 + j(0.05), 0.97, 'lipHit', 0.55 + j(0.08), true);
+      add(-0.62 + j(0.05), 0.55 + j(0.05), 'cutback', 0.9 + j(0.1));
+      add(-0.25 + j(0.04), 0.4, 'trim', 0.55 + j(0.08));
     }
   } else if (style === 'tube') {
     // squeeze the tube into what is left of the peel (the rider moves down the line at about vPeel)

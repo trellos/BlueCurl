@@ -14,7 +14,7 @@
 // Determinism: fixed steps, state = f(cfg, swell history); seeded by hash01/mulberry32; no Math.random.
 // Every RideEvent is a fresh object (the camera rig de-duplicates by identity). frontId / zi stay set from
 // POSITION until the rider starts RETURN.
-import { RIDERS, ZONES, uToZ, zToU, hash01, breakStartTime, ambientHeight } from '../contracts.js';
+import { RIDERS, ZONES, DT, FRONT_W, uToZ, zToU, hash01, breakStartTime, ambientHeight } from '../contracts.js';
 import { sampleFront, barrel, columnState, evalLocal, crossings } from '../wave/field.js';
 import { profileInto } from '../wave/profile.js';
 import { pathSpline, pathEval } from '../sim/swell.js';
@@ -30,7 +30,9 @@ const smooth = (s) => { s = clamp(s, 0, 1); return s * s * (3 - 2 * s); };
 const KO_T = 0.9;            // s, kick-out
 const CO_T = 1.8;            // s, close-out wipe (attached for CO_ATTACH, then tumbling free)
 const CO_ATTACH = 0.6;
-const ERR_TAU = 0.2;         // s, transition smoothing of the position
+const ERR_TAU = 0.2;
+const CATCH_EASE = 0.5;      // s, paddle speed → wave speed at the catch
+const TRAIL_EVERY = 2, TRAIL_DT = TRAIL_EVERY * DT, TRAIL_N = 128;   // position trail for wakes (≈ 2.1 s)         // s, transition smoothing of the position
 const TAU_CLOSE = 0.85;      // the break overtook the rider
 const HOP = { surfer: 0.7, dolphin: 2.0, seal: 0.8 };
 const ACC = { surfer: 4, dolphin: 14, seal: 7 };          // m/s², paddling / swimming acceleration
@@ -55,10 +57,12 @@ export class Riders {
         state: 'LINEUP', style: null, action: 'idle', actionT: 0,
         pos: { x: h.x, y: ambientHeight(h.x, h.z, 0), z: h.z }, fwd: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 },
         speed: 0, frontId: null, zi: -1, u: zToU(h.z), sigma: 0, tube: false,
+        prevAction: 'idle', prevActionT: 0, actionStart: 0,
+        trail: { dt: TRAIL_DT, n: TRAIL_N, count: 0, head: -1, t: 0, xyz: new Float32Array(TRAIL_N * 3) },
       };
       this._b.push({
         homes: homes[R.id], homeZi: zi, coolUntil: 0, idle: null, idleN: 0, wx: h.x, wz: h.z,
-        ride: null, tState: 0, mv: { x: 0, z: 0 }, lastV: { x: 0, y: 0, z: 0 }, err: { x: 0, y: 0, z: 0 }, cont: false, prev: null, vs: { x: 0, y: 0, z: 0 }, lean: 0,
+        ride: null, tState: 0, seg: null, mv: { x: 0, z: 0 }, lastV: { x: 0, y: 0, z: 0 }, err: { x: 0, y: 0, z: 0 }, cont: false, prev: null, vs: { x: 0, y: 0, z: 0 }, lean: 0,
       });
       return r;
     });
@@ -83,10 +87,39 @@ export class Riders {
     }
     // 2. riders
     for (let i = 0; i < this.riders.length; i++) this._stepRider(this.riders[i], this._b[i], t, dt, swell, seed);
-    // 3. event ring
+    // 3. position trail (sim-stepped, every TRAIL_DT)
+    if (Math.round(t / DT) % TRAIL_EVERY === 0) {
+      for (const r of this.riders) {
+        const T = r.trail;
+        T.head = (T.head + 1) % T.n; T.count = Math.min(T.n, T.count + 1); T.t = t;
+        T.xyz[T.head * 3] = r.pos.x; T.xyz[T.head * 3 + 1] = r.pos.y; T.xyz[T.head * 3 + 2] = r.pos.z;
+      }
+    }
+    // 4. event ring
     let cut = 0;
     while (cut < this.events.length && (this.events[cut].t < t - 60 || this.events.length - cut > 256)) cut++;
     if (cut) this.events.splice(0, cut);
+  }
+
+  /**
+   * Rider position `age` seconds ago (0 = now), linearly interpolated along the sim-stepped trail; clamped to the
+   * oldest stored sample (TRAIL_N · TRAIL_DT ≈ 2.1 s). Writes out = {x,y,z} and returns it.
+   */
+  trail(id, age, out = { x: 0, y: 0, z: 0 }) {
+    const r = this.riders[id], T = r.trail;
+    const tq = this.t - Math.max(0, age);
+    if (T.count === 0 || tq >= T.t) {                         // between the newest sample and now
+      const a = T.count ? T.t : this.t, w = this.t > a ? (tq - a) / (this.t - a) : 1;
+      const k = T.head * 3, px = T.count ? T.xyz[k] : r.pos.x, py = T.count ? T.xyz[k + 1] : r.pos.y, pz = T.count ? T.xyz[k + 2] : r.pos.z;
+      out.x = px + (r.pos.x - px) * w; out.y = py + (r.pos.y - py) * w; out.z = pz + (r.pos.z - pz) * w;
+      return out;
+    }
+    const f = Math.min((T.t - tq) / T.dt, T.count - 1), i = Math.floor(f), w = f - i;
+    const ia = ((T.head - i) % T.n + T.n) % T.n, ib = ((T.head - Math.min(i + 1, T.count - 1)) % T.n + T.n) % T.n;
+    out.x = T.xyz[ia * 3] + (T.xyz[ib * 3] - T.xyz[ia * 3]) * w;
+    out.y = T.xyz[ia * 3 + 1] + (T.xyz[ib * 3 + 1] - T.xyz[ia * 3 + 1]) * w;
+    out.z = T.xyz[ia * 3 + 2] + (T.xyz[ib * 3 + 2] - T.xyz[ia * 3 + 2]) * w;
+    return out;
   }
 
   _emit(ev) { this.events.push({ ...ev }); }
@@ -99,7 +132,7 @@ export class Riders {
 
   // ------------------------------------------------------------------ wave choice
   _choose(t, f, zb, swell, seed) {
-    const tier1 = [], tier2 = [];
+    const tier1 = [], tier2 = [], tier3 = [];
     for (let i = 0; i < this.riders.length; i++) {
       const r = this.riders[i], b = this._b[i];
       if (!r.zones.includes(zb.zone)) continue;
@@ -110,12 +143,16 @@ export class Riders {
         const u = zToU(b.wz), h = b.homes[b.homeZi];
         if (u > zb.u0 && u < zb.u1 && (b.homeZi === zb.zi || Math.hypot(h.x - b.wx, h.z - b.wz) <= 25)) tier = 2;
       }
+      // last resort: anyone of this zone paddling around inside who can still get on it (a late, inside take-off)
+      if (!tier && (r.state === 'RETURN' || r.state === 'LINEUP') && b.wx > ZONES[zb.zi].lineX - 45) tier = 3;
       if (!tier) continue;
       const opt = this._option(r, b, f, zb, t, null);
-      if (!opt || (tier === 2 && opt.tauEst > 0.05)) continue;
-      (tier === 1 ? tier1 : tier2).push({ r, b, opt, w: fit(r.kind, zb) * opt.reach });
+      if (!opt || (tier === 2 && opt.tauEst > 0.05) || (tier === 3 && opt.tauEst > 0.45)) continue;
+      [tier1, tier2, tier3][tier - 1].push({ r, b, opt, w: fit(r.kind, zb) * opt.reach });
     }
-    const C = tier1.length ? tier1 : tier2;
+    // tier 2 (in cool-down / nearly back) and tier 3 (late, from inside) only when nobody fresh can go
+    if (!tier1.length && !tier2.length) for (const c of tier3) if (c.opt.tauEst > 0.05) c.w = Math.max(c.w, 1e-3);
+    const C = tier1.length ? tier1 : tier2.length ? tier2 : tier3;
     if (!C.length) return;
     const k = zb.zi * 13;
     const p1 = weightedPick(C, hash01(f.id, k + 1, seed));
@@ -125,7 +162,7 @@ export class Riders {
     const p2 = weightedPick(C2, hash01(f.id, k + 2, seed));
     // keep someone in reserve for the next waves of the set that look like they will break here
     let spare = 0;
-    for (const c of [...tier1, ...tier2]) if (c !== p1 && c !== p2 && c.opt.reach >= 0.1) spare++;
+    for (const c of [...tier1, ...tier2, ...tier3]) if (c !== p1 && c !== p2 && c.opt.reach >= 0.1) spare++;
     if (spare < this._upcoming(swell, f, zb.zi)) return;
     if (hash01(f.id, k + 3, seed) < clamp(0.3 + 0.5 * p2.w, 0, 0.85)) {
       const opt = this._option(p2.r, p2.b, f, zb, t, p1.opt);
@@ -147,7 +184,9 @@ export class Riders {
     let sLo, sHi;
     if (zb.closeout) { sLo = wf.sStart + 4; sHi = wf.sEdge - 6; }
     else { sLo = 3; sHi = Math.max(sLo, Math.min(wf.sEnd - 14, 50)); }
-    let sT = clamp(sr, sLo, sHi);
+    // head up the line toward the peak as far as positioning allows: the earlier the take-off, the longer the ride
+    const vP0 = KINDS[r.kind].vPos, avail0 = Math.max(0.5, zb.tBreak - 0.8 - t);
+    let sT = zb.closeout ? clamp(sr, sLo, sHi) : clamp(Math.min(sr, Math.max(sLo, sr - 0.9 * vP0 * avail0)), sLo, sHi);
     if (other && other.wf.rd === rd && Math.abs(sT - other.sT) < 9) {      // second rider: keep apart
       const a = other.sT + 9, c = other.sT - 9;
       sT = a <= sHi + 6 && (Math.abs(a - sr) < Math.abs(c - sr) || c < sLo - 6) ? a : c;
@@ -170,11 +209,13 @@ export class Riders {
     const sGet = sr + clamp(sT - sr, -vPos * avail, vPos * avail);
     const late = Math.max(0, KIND_PLAN[r.kind].glide - wf.vRef) * 2;    // what racing along the face can make up
     if (!zb.closeout && sGet < sLo - 6 - late) return null;              // stuck behind the peak
+    if (!zb.closeout && wf.sEnd - sGet < 10) return null;                 // would catch it where the peel ends
     const tGet = breakStartTime(zb, uOfS(wf, sGet));
     const tPass = this._passTime(sp, f, t, b.wx + Math.max(0, xT - b.wx) * 0.5, PT.xi);
     const tauEst = Number.isFinite(tGet) ? (tPass - tGet) / zb.Tb : -3;
     const reach = Math.exp(-Math.max(0, vNeed - vPos) / vPos) * Math.exp(-Math.max(0, Math.abs(sT - sr) - vPos * avail - 6) / 8)
-      * Math.exp(-Math.max(0, tauEst + 0.1) / 0.2) * Math.exp(-Math.max(0, -tauEst - 2.5) / 1.5);
+      * Math.exp(-Math.max(0, tauEst + 0.1) / 0.2) * Math.exp(-Math.max(0, -tauEst - 2.5) / 1.5)
+      * (zb.closeout ? 1 : 0.3 + 0.7 * clamp((wf.sEnd - sGet) / Math.max(1, wf.sEnd), 0, 1));   // peel left to ride
     return { wf, sT, xT, zT, tCatch, tauEst, reach: Math.max(reach, 1e-3) };
   }
 
@@ -234,6 +275,10 @@ export class Riders {
     const p = r.pos;
     p.x = raw.x + b.err.x; p.y = raw.y + b.err.y; p.z = raw.z + b.err.z;
     b.err.x *= k; b.err.y *= k; b.err.z *= k;
+    const seg = raw.seg ?? r.state;
+    if (raw.act !== r.action || seg !== b.seg) {
+      r.prevAction = r.action; r.prevActionT = r.actionT; r.actionStart = t; b.seg = seg;
+    }
     r.action = raw.act; r.actionT = raw.actT;
     this._orient(r, b, raw, dt);
     b.prev = { x: p.x, y: p.y, z: p.z };
@@ -300,7 +345,7 @@ export class Riders {
     const o = idleStep(r, b, t, seed, IDLE);
     b.wx = o.x; b.wz = o.z;
     r.style = null; r.tube = false; r.u = zToU(o.z); r.sigma = 0;
-    return { x: o.x, y: this._surf(swell, o.x, o.z, t) + o.off, z: o.z, act: o.act, actT: o.actT,
+    return { x: o.x, y: this._surf(swell, o.x, o.z, t) + o.off, z: o.z, act: o.act, actT: o.actT, seg: `i${b.idleN}`,
       carry: 0, n: null, face: o.face, pitch: r.kind !== 'surfer' };
   }
 
@@ -339,6 +384,7 @@ export class Riders {
     R.plan = buildPlan({ wf, kind: r.kind, style: R.style, seed: R.seed, tC: t, sC: sOfU(wf, u), hC,
       tauBias: R.slot ? -0.25 : 0 });
     R.tTakeoff = t;
+    R.c0 = { x: b.wx, z: b.wz, u, vx: b.lastV.x, vz: b.lastV.z };
     r.style = R.style;
     this._setState(r, b, 'TAKEOFF', t);
     this._emit({ t, type: 'takeoff', riderId: r.id, frontId: R.frontId, zi: R.zi });
@@ -353,16 +399,29 @@ export class Riders {
     const u = clamp(uOfS(wf, s), 0.001, 0.999);
     const tau = tauAt(wf, s, t);
     let h = e.h;
+    // catch: ease from the paddling motion to the wave over CATCH_EASE s — the face lifts the rider (h rises at the
+    // paddle-extrapolated x) while the plan takes over
+    let uu = u;
+    const tc = t - P.tC;
+    if (tc < CATCH_EASE && R.c0) {
+      const w = smooth(tc / CATCH_EASE), c0 = R.c0;
+      const uF = clamp(c0.u + (c0.vz * tc) / FRONT_W, 0.001, 0.999);
+      uu = uF + (u - uF) * w;
+      const xF = c0.x + c0.vx * tc, cs = columnState(f, uu, t, CS);
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 18; i++) { const m = 0.5 * (lo + hi); if (f.x - evalLocal(cs, sigmaOfH(m), LQ).xi < xF) lo = m; else hi = m; }
+      h = 0.5 * (lo + hi) + (h - 0.5 * (lo + hi)) * w;
+    }
     if (tau > 0.2) h = Math.min(h, 1 - 0.75 * smooth((tau - 0.2) / 0.2));     // never on the lip's underside
     const sigma = sigmaOfH(h);
-    const sm = sampleFront(f, u, sigma, t);
+    const sm = sampleFront(f, uu, sigma, t);
     // offset (animals): along the normal blended with up
     let ox = sm.nx, oy = sm.ny + 1, oz = sm.nz;
     const ol = Math.hypot(ox, oy, oz) || 1;
     const x = sm.x + (ox / ol) * e.off, y = sm.y + (oy / ol) * e.off, z = sm.z + (oz / ol) * e.off;
     R.dh = R.plan === P && R._hT === t - dt ? (h - R.h) / dt : 0; R._hT = t;
-    R.s = s; R.h = h; R.sigma = sigma; R.vS = wf.vRef + e.dd; R.u = u;
-    r.u = u; r.sigma = sigma;
+    R.s = s; R.h = h; R.sigma = sigma; R.vS = wf.vRef + e.dd; R.u = uu;
+    r.u = uu; r.sigma = sigma;
     if (r.state === 'TAKEOFF' && t >= P.tR) { r.state = 'RIDE'; b.tState = t; }
     if (sm.H > R.maxH) R.maxH = sm.H;
     // barrel
@@ -376,10 +435,13 @@ export class Riders {
       }
     }
     // end of ride
-    if (tau > TAU_CLOSE) { this._end(r, b, t, 'closeout'); return null; }
-    if (r.state === 'RIDE' && (t >= P.tEnd || s >= wf.sEnd - 4 || u <= 0.01 || u >= 0.99 || f.x < 15
-        || depthAt(x, z) < 0.35)) { this._end(r, b, t, 'kickout'); return null; }
-    return { x, y, z, act: e.act, actT: e.actT, carry: f.vx, n: { x: sm.nx, y: sm.ny, z: sm.nz },
+    if (tau > TAU_CLOSE) { R.why = 'overtaken'; this._end(r, b, t, 'closeout'); return null; }
+    if (r.state === 'RIDE') {
+      R.why = t >= P.tEnd ? 'planned' : s >= wf.sEnd - 2.5 && (t > P.tR + 2 || e.dd > -0.5 * wf.vRef) ? 'peelEnd' : u <= 0.01 || u >= 0.99 ? 'edge'
+        : f.x < 15 ? 'shore' : depthAt(x, z) < 0.35 ? 'shallow' : null;
+      if (R.why) { this._end(r, b, t, 'kickout'); return null; }
+    }
+    return { x, y, z, act: e.act, actT: e.actT, seg: `r${R.id}:${P._a}`, carry: f.vx, n: { x: sm.nx, y: sm.ny, z: sm.nz },
       air: e.air, pitch: r.kind !== 'surfer' || e.air, bank: r.state === 'RIDE' && !e.air };
   }
 
@@ -391,7 +453,7 @@ export class Riders {
     this.rides.push({
       ride: R.id, riderId: r.id, name: r.name, kind: r.kind, frontId: R.frontId, set: R.front.set, k: R.front.k,
       zi: R.zi, zone: R.zb.zone, style: R.style, slot: R.slot, tTakeoff: R.tTakeoff, tEnd: t, outcome,
-      maxH: R.maxH, barrelS: R.barrelS, H: R.zb.H,
+      maxH: R.maxH, barrelS: R.barrelS, H: R.zb.H, tStand: R.plan ? R.plan.tR : null, why: R.why ?? 'front',
     });
     if (this.rides.length > 1000) this.rides.splice(0, this.rides.length - 1000);
     r.tube = false;
@@ -414,7 +476,7 @@ export class Riders {
     let top = -Infinity;
     for (const y of CR) if (y > top) top = y;
     if (top === -Infinity) top = 0;
-    const y = top + ambientHeight(x, z, t, this.cfg?.ambient) + HOP[r.kind] * Math.sin(Math.PI * p);
+    const y = top + ambientHeight(x, z, t, this.cfg?.ambient) + HOP[r.kind] * Math.sin(Math.PI * p) ** 2;   // eases in and out
     r.u = u; r.sigma = SIG_BACK;
     return { x, y, z, act: r.kind === 'surfer' ? 'kickout' : 'jump', actT: p, carry: 0, n: null, air: p > 0.03, pitch: true };
   }

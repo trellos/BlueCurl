@@ -18,7 +18,7 @@ const NEXT = {
 /** One full run with per-step checks collected (the expensive part is shared by the tests). */
 function run(d = demo, until = UNTIL) {
   const out = { nan: 0, badTransitions: [], surfDy: 0, surfAt: '', animalDy: 0, events: [], seenEv: new Set(),
-    idsMissing: 0, trace: [], states: new Set(), frameDup: 0 };
+    idsMissing: 0, trace: [], states: new Set(), frameDup: 0, hist: new Map(), trailErr: 0, trailN: 0, actBad: 0 };
   const prevState = new Map();
   const res = simulate(d, {
     until,
@@ -28,6 +28,13 @@ function run(d = demo, until = UNTIL) {
         out.seenEv.add(ev); out.events.push(ev);
       }
       for (const r of riders.riders) {
+        // trail: riders.trail(id, age) is the position age seconds ago
+        const H = out.hist.get(r.id) ?? []; H.push([t, r.pos.x, r.pos.y, r.pos.z]); if (H.length > 200) H.shift(); out.hist.set(r.id, H);
+        if (H.length > 100 && Math.round(t / DT) % 7 === 0) {
+          const old = H[H.length - 1 - 60], q = riders.trail(r.id, t - old[0]);
+          out.trailErr = Math.max(out.trailErr, Math.hypot(q.x - old[1], q.y - old[2], q.z - old[3])); out.trailN++;
+        }
+        if (typeof r.prevAction !== 'string' || !Number.isFinite(r.prevActionT) || !(r.actionStart <= t)) out.actBad++;
         for (const v of [r.pos.x, r.pos.y, r.pos.z, r.fwd.x, r.fwd.y, r.fwd.z, r.up.x, r.up.y, r.up.z, r.speed, r.actionT, r.u])
           if (!Number.isFinite(v)) out.nan++;
         if (Math.abs(Math.hypot(r.fwd.x, r.fwd.y, r.fwd.z) - 1) > 1e-6 || Math.abs(Math.hypot(r.up.x, r.up.y, r.up.z) - 1) > 1e-6) out.nan++;
@@ -64,6 +71,19 @@ test('rides happen on demo-basic, no NaNs, valid states and transitions', () => 
   assert.deepEqual(a.badTransitions, []);
   assert.equal(a.idsMissing, 0, 'frontId / zi must stay set from POSITION to the end of the ride');
   for (const s of ['LINEUP', 'POSITION', 'TAKEOFF', 'RIDE', 'KICKOUT', 'RETURN']) assert.ok(a.states.has(s), `state ${s} never seen`);
+});
+
+test('short take-offs, long standing rides, trail and action history for WP6b', () => {
+  const a = base();
+  for (const r of a.riders.rides) {
+    assert.ok(r.tStand - r.tTakeoff <= 1.0 + 1e-9, `${r.name} front ${r.frontId}: ${(r.tStand - r.tTakeoff).toFixed(2)} s to stand`);
+  }
+  const pt = a.riders.rides.filter((r) => r.zone === 'point' && r.outcome === 'kickout').map((r) => r.tEnd - r.tStand);
+  const mean = pt.reduce((x, y) => x + y, 0) / pt.length;
+  assert.ok(mean >= 4, `mean standing point ride ${mean.toFixed(2)} s`);
+  assert.ok(Math.max(...pt) >= 7, `longest point ride ${Math.max(...pt).toFixed(2)} s`);
+  assert.ok(a.trailN > 100 && a.trailErr < 0.05, `trail error ${a.trailErr} over ${a.trailN} checks`);
+  assert.equal(a.actBad, 0);
 });
 
 test('every ride ends and every rider gets back to LINEUP', () => {

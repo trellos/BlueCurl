@@ -44,10 +44,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
   const { riders, breaks } = simulate(demo, { until: ui >= 0 ? Number(args[ui + 1]) : null });
   console.log(`${demo.name ?? file}: ${riders.rides.length} rides, ${breaks.length} zone breaks`);
   console.log([pad('rider', 7), pad('front', 6), pad('set', 4), pad('zone', 7), pad('style', 9), pad('takeoff', 8),
-    pad('end', 7), pad('outcome', 9), pad('maxH', 5), 'barrel'].join(''));
+    pad('stand', 7), pad('end', 7), pad('outcome', 9), pad('maxH', 5), pad('barrel', 7), 'why'].join(''));
   for (const r of riders.rides) {
     console.log([pad(r.name, 7), pad(r.frontId, 6), pad(r.set, 4), pad(r.zone, 7), pad(r.style, 9), pad(num(r.tTakeoff, 2), 8),
-      pad(num(r.tEnd, 2), 7), pad(r.outcome, 9), pad(num(r.maxH), 5), num(r.barrelS, 2)].join(''));
+      pad(num(r.tStand, 2), 7), pad(num(r.tEnd, 2), 7), pad(r.outcome, 9), pad(num(r.maxH), 5), pad(num(r.barrelS, 2), 7), r.why ?? ''].join(''));
   }
   const busy = riders.riders.filter((r) => r.state !== 'LINEUP' && r.state !== 'RETURN');
   if (busy.length) console.log(`still riding at the end: ${busy.map((r) => `${r.name}:${r.state}`).join(', ')}`);
