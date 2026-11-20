@@ -87,7 +87,7 @@ test('dolphin jump: deterministic from id, ~1.4 s arc, under water at the ends, 
 test('shimmer line: none without energy, grows with energy, hit pulses travel, fades as the column breaks', () => {
   assert.equal(lineLevel(0), 0);
   assert.equal(lineLevel(SHIMMER.minE * 0.5), 0);
-  assert.ok(lineLevel(0.03) > 0.2 && lineLevel(0.3) > lineLevel(0.03) && lineLevel(5) <= 1);
+  assert.ok(lineLevel(0.03) > 0.15 && lineLevel(0.3) > lineLevel(0.03) && lineLevel(5) <= 1);
   // pulse: centred at the hit at first, then a packet ~pulseV·a away
   assert.ok(hitPulse(0, 0) > hitPulse(30, 0));
   const a = 0.8, r = SHIMMER.pulseV * a;

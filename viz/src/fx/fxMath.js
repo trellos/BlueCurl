@@ -17,10 +17,10 @@ export const mix3 = (a, b, s) => [lerp(a[0], b[0], s), lerp(a[1], b[1], s), lerp
  * light gold → seafoam → aqua → cyan (never magenta/purple), one stop per lane centre of the 8-lane keyboard.
  */
 export const LANE_STOPS = [
-  [1.0, 0.6, 0.08], [1.0, 0.48, 0.1], [1.0, 0.58, 0.26], [1.0, 0.78, 0.42],
-  [0.55, 0.95, 0.78], [0.3, 0.9, 0.9], [0.15, 0.78, 1.0], [0.08, 0.6, 1.0],
+  [1.0, 0.6, 0.08], [1.0, 0.46, 0.08], [1.0, 0.56, 0.16], [1.0, 0.74, 0.2],
+  [0.3, 0.95, 0.68], [0.2, 0.88, 0.92], [0.12, 0.74, 1.0], [0.08, 0.58, 1.0],
 ];
-/** Base of the subtle tint for light on the water (warm, sun-glint like); the lane colour is mixed in at 40 %. */
+/** Base of the tint for light on the water (warm, sun-glint like); the lane colour is mixed in at 80 %. */
 export const WATER_WHITE = [1.0, 0.86, 0.62];
 export function laneColor(u, out = [0, 0, 0]) {
   const n = LANE_STOPS.length, f = clamp(u * n - 0.5, 0, n - 1), i = Math.min(n - 2, Math.floor(f)), w = f - i;
@@ -151,10 +151,10 @@ export function jumpSplashes(jp) {
 
 // ------------------------------------------------------------------------------- front shimmer
 export const SHIMMER = {
-  e0: 0.08,          // column energy giving 63 % of full line strength (one strong hit peaks ≈ 0.031 per column)
+  e0: 0.12,          // column energy giving 63 % of full strength (one strong hit peaks ≈ 0.031 per column: 3 notes ≈ 0.5, 20 ≈ 1)
   minE: 0.004,       // below this a column has no line (ambient fronts: none at all)
   pulseV: 32,        // m/s a hit's pulse travels along the line (both ways)
-  pulseLife: 1.6,    // s
+  pulseLife: 1.4,    // s
 };
 /** 0..1 line strength of a column from its accumulated energy. */
 export const lineLevel = (e) => (e > SHIMMER.minE ? 1 - Math.exp(-(e - SHIMMER.minE) / SHIMMER.e0) : 0);
@@ -165,8 +165,8 @@ export const lineLevel = (e) => (e > SHIMMER.minE ? 1 - Math.exp(-(e - SHIMMER.m
 export function hitPulse(dz, a, gain = 1) {
   if (a < 0 || a > SHIMMER.pulseLife) return 0;
   const d = Math.abs(dz), w = 10 + 14 * a, r = SHIMMER.pulseV * a;
-  const travel = Math.exp(-(((d - r) / w) ** 2)) * Math.exp(-a / 0.55);
-  const flash = Math.exp(-((d / 18) ** 2)) * Math.exp(-a / 0.25);
+  const travel = Math.exp(-(((d - r) / w) ** 2)) * Math.exp(-a / 0.6);
+  const flash = Math.exp(-((d / 22) ** 2)) * Math.exp(-a / 0.35);
   return gain * (travel + 1.4 * flash);
 }
 /**

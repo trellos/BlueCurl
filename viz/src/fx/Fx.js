@@ -41,7 +41,7 @@ export class Fx {
     this._byId = new Map();
     this._fcol = new Map();           // front id → lane-colour accumulation per column (incremental by impulse count)
     this._tmp = { core: new Float32Array(RIB_PTS), halo: new Float32Array(RIB_PTS), hw: new Float32Array(RIB_PTS),
-      px: new Float32Array(RIB_PTS), x: new Float64Array(RIB_PTS), y: new Float64Array(RIB_PTS), c: new Float32Array(RIB_PTS * 3) };
+      px: new Float32Array(RIB_PTS), th: new Float32Array(RIB_PTS), dn: new Float32Array(RIB_PTS), x: new Float64Array(RIB_PTS), y: new Float64Array(RIB_PTS), c: new Float32Array(RIB_PTS * 3) };
     this._size = new THREE.Vector2();
     this.stats = { impulses: 0, emitters: 0, sprites: 0, ribbons: 0, dolphins: 0 };
   }
@@ -204,15 +204,20 @@ export class Fx {
       let P = 0;
       if (hits) for (const h of hits) P += hitPulse(z - h.z, h.age, h.gain);
       if (!(lvl > 0)) P *= 0.4;
-      T.core[i] = 1.2 * lvl + 1.4 * P;                                 // glow (soft brightening)
-      T.halo[i] = 6.0 * Math.sqrt(lvl) + 5.0 * P;                       // glints
-      T.hw[i] = 3 + 5 * lvl + 4 * Math.min(1, P) + (unspawned ? 3 : 0);
+      const Pc = Math.min(1.5, P);
+      // any charged column reads (ramp → floor), and it grows strongly with energy: 3 soft notes ≈ lvl 0.3, 20 ≈ 1
+      const on = Math.min(1, lvl / 0.06);
+      T.core[i] = on * (0.8 + 2.2 * lvl) + 2.4 * Pc;                            // glow (brightened water, HDR)
+      T.halo[i] = on * (3.5 + 10 * lvl) + 8.0 * Pc;                             // glints (HDR)
+      T.hw[i] = 2 + 7 * lvl + 5 * Pc;                                           // min half-width (m)
+      T.th[i] = (lvl > 0 || P > 0.02) ? on * (9 + 24 * lvl) + 16 * Pc + (unspawned ? 4 : 0) : 0; // half-thickness (px)
+      T.dn[i] = Math.min(0.95, 0.3 + 0.55 * lvl + 0.3 * Pc);                   // glint density
       T.px[i] = fade;
       const sw = fc.sw[c0] * (1 - w) + fc.sw[c0 + 1] * w;
       const lc = sw > 1e-6 ? null : laneColor(u);
       for (let j = 0; j < 3; j++) {
         const cj = lc ? lc[j] : (fc.w[c0 * 3 + j] * (1 - w) + fc.w[(c0 + 1) * 3 + j] * w) / sw;
-        T.c[i * 3 + j] = lerp(WATER_WHITE[j], cj, 0.4);
+        T.c[i * 3 + j] = lerp(WATER_WHITE[j], cj, 0.8);
       }
       if (fade * (T.core[i] + T.halo[i]) > any) any = fade * (T.core[i] + T.halo[i]);
     }
@@ -230,7 +235,7 @@ export class Fx {
       } else if (i > 0) { x = T.x[i - 1]; y = T.y[i - 1]; }
       T.x[i] = x; T.y[i] = y;
       this.shimmer.set(r, i, x, y + 0.3, 0.35 * y + 0.2, z, T.core[i], T.halo[i], T.c[i * 3], T.c[i * 3 + 1], T.c[i * 3 + 2],
-        T.px[i], T.hw[i], unspawned ? 0.16 : 0.12);
+        T.px[i], T.hw[i], T.th[i], T.dn[i]);
     }
   }
 
