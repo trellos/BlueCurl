@@ -82,15 +82,23 @@ void main() {
     lp.x += -0.05 * amp * (s / 0.5) * cos(ph);       // wings sweep a little through the stroke
   }
   lp.y -= 0.025 * amp * sin(ph);                      // body bobs against the stroke
+#ifdef CAM_SPACE
+  // WP15 key flock: instance pose given in camera space (x right, y up, -z into the view)
+  mat3 camToWorld = transpose(mat3(viewMatrix));
+  vec3 iPos = cameraPosition + camToWorld * iP.xyz;
+  vec3 f = normalize(camToWorld * iF.xyz);
+#else
+  vec3 iPos = iP.xyz;
   vec3 f = normalize(iF.xyz);
+#endif
   vec3 r0 = cross(f, vec3(0.0, 1.0, 0.0));
   r0 = length(r0) < 1e-3 ? vec3(0.0, 0.0, 1.0) : normalize(r0);
   vec3 u0 = cross(r0, f);
   float cr = cos(iF.w), sr = sin(iF.w);
   vec3 rt = r0 * cr - u0 * sr, up = u0 * cr + r0 * sr;
-  vec4 c0 = viewMatrix * vec4(iP.xyz, 1.0);
+  vec4 c0 = viewMatrix * vec4(iPos, 1.0);
   float span = max(iP.w, uMinPx * uPxM * max(1.0, -c0.z));
-  vec3 wp = iP.xyz + span * (f * lp.x + up * lp.y + rt * lp.z);
+  vec3 wp = iPos + span * (f * lp.x + up * lp.y + rt * lp.z);
   vW = wp;
   vAlb = color;
   vGlow = iC * iW.w;
@@ -106,6 +114,11 @@ in vec3 vGlow;
 in float vAlpha;
 in float vWing;
 uniform vec3 uSunDir;
+uniform vec3 uSunC;      // sun colour (dawn: 1.0, 0.68, 0.4; follows app.sun when the day cycle runs)
+uniform vec3 uSkyUp;
+uniform vec3 uSkyDn;
+uniform vec3 uHazeC;
+uniform float uShade;   // 0..1: darken toward a backlit silhouette (WP15 key flock)
 float bayer4(vec2 p) {
   ivec2 i = ivec2(mod(p, 4.0));
   int b[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
@@ -118,16 +131,18 @@ void main() {
   if (dot(n, V) > 0.0) n = -n;                        // face the camera (two-sided)
   vec3 L = normalize(uSunDir);
   float mu = max(0.0, dot(V, L));
-  vec3 sunC = vec3(1.0, 0.68, 0.4);
-  vec3 skyUp = vec3(0.95, 0.62, 0.5), skyDn = vec3(0.16, 0.34, 0.33);
+  vec3 sunC = uSunC;
+  vec3 skyUp = uSkyUp, skyDn = uSkyDn;
   vec3 amb = mix(skyDn, skyUp, 0.5 + 0.5 * n.y);
   float dif = max(0.0, dot(n, L));
   float rim = pow(1.0 - abs(dot(n, -V)), 3.0);
   float trans = pow(mu, 5.0) * (0.35 + 0.65 * vWing);
   vec3 col = vAlb * (amb * 0.75 + sunC * dif * 1.6) + sunC * (trans * 1.5 + rim * (0.35 + 1.4 * mu)) * (0.4 + 0.6 * vAlb.r);
+  // backlit silhouette (a little lighter where the sea is behind the bird)
+  col = mix(col, uSkyDn * 0.12 + sunC * (0.03 + 0.25 * trans + 0.1 * rim), uShade * mix(0.75, 1.0, smoothstep(-0.015, 0.02, V.y)));
   col += vGlow;
   float dist = length(vW - cameraPosition);
-  col = mix(col, vec3(1.0, 0.72, 0.5) * 1.1, 0.35 * (1.0 - exp(-dist / 1400.0)));   // dawn haze
+  col = mix(col, uHazeC, 0.35 * (1.0 - exp(-dist / 1400.0)));   // haze (dawn: 1.1, 0.79, 0.55)
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -176,17 +191,26 @@ void main() {
   gl_FragColor = vec4(vCol * a, clamp(0.25 * a, 0.0, 0.5));
 }`;
 
+/** Dawn look of the bird shader (the day cycle scales / tints these, see Birds.setLight). */
+export const BIRD_LIGHT = { sun: [1.0, 0.68, 0.4], skyUp: [0.95, 0.62, 0.5], skyDn: [0.16, 0.34, 0.33], haze: [1.1, 0.792, 0.55] };
+
 export class Birds {
-  constructor() {
+  /** opts: { max (instances), minPx (minimum on-screen wingspan), camSpace (poses in camera space, WP15 key flock) } */
+  constructor(opts = {}) {
+    const MAXB = opts.max ?? MAX_BIRDS;
+    this.max = MAXB;
     // birds
     const g = makeBirdGeometry();
     const mk = (geo, n, k) => { const a = new THREE.InstancedBufferAttribute(new Float32Array(n * k), k); a.setUsage(THREE.DynamicDrawUsage); return a; };
-    this.aP = mk(g, MAX_BIRDS, 4); this.aF = mk(g, MAX_BIRDS, 4); this.aW = mk(g, MAX_BIRDS, 4); this.aC = mk(g, MAX_BIRDS, 3);
+    this.aP = mk(g, MAXB, 4); this.aF = mk(g, MAXB, 4); this.aW = mk(g, MAXB, 4); this.aC = mk(g, MAXB, 3);
     g.setAttribute('iP', this.aP); g.setAttribute('iF', this.aF); g.setAttribute('iW', this.aW); g.setAttribute('iC', this.aC);
     g.instanceCount = 0;
     this.geometry = g;
-    this.uniforms = { uPxM: { value: 0.001 }, uMinPx: { value: 30 }, uSunDir: { value: new THREE.Vector3(0.99, 0.1, -0.06) } };
-    this.material = new THREE.ShaderMaterial({ vertexShader: BIRD_VERT, fragmentShader: BIRD_FRAG, uniforms: this.uniforms, side: THREE.DoubleSide });
+    const L = BIRD_LIGHT, v3 = (a) => new THREE.Vector3(...a);
+    this.uniforms = { uPxM: { value: 0.001 }, uMinPx: { value: opts.minPx ?? 30 }, uSunDir: { value: new THREE.Vector3(0.99, 0.1, -0.06) },
+      uSunC: { value: v3(L.sun) }, uSkyUp: { value: v3(L.skyUp) }, uSkyDn: { value: v3(L.skyDn) }, uHazeC: { value: v3(L.haze) }, uShade: { value: opts.shade ?? 0 } };
+    this.material = new THREE.ShaderMaterial({ vertexShader: BIRD_VERT, fragmentShader: BIRD_FRAG, uniforms: this.uniforms, side: THREE.DoubleSide,
+      defines: opts.camSpace ? { CAM_SPACE: 1 } : {} });
     this.mesh = new THREE.Mesh(g, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 5;
@@ -212,7 +236,7 @@ export class Birds {
 
   /** Add bird bp at age a (pose from birdMath). */
   add(bp, a) {
-    if (this.n >= MAX_BIRDS) return;
+    if (this.n >= this.max) return;
     const p = birdPose(bp, a, this._pose);
     if (!(p.alpha > 0.003) || !Number.isFinite(p.x + p.y + p.z)) return;
     const i = this.n++;
@@ -222,6 +246,28 @@ export class Birds {
     this.aW.array.set([p.flap, p.amp, p.alpha, glow], i * 4);
     this.aC.array.set(bp.col, i * 3);
     if (bp.trail) this._trail(bp, a, p);
+  }
+
+  /** Add a bird from an explicit pose { x,y,z, fx,fy,fz, roll, flap, amp, alpha, span } (world, or camera space). */
+  addPose(p, col = null, glow = 0) {
+    if (this.n >= this.max || !(p.alpha > 0.003) || !Number.isFinite(p.x + p.y + p.z)) return;
+    const i = this.n++;
+    this.aP.array.set([p.x, p.y, p.z, p.span], i * 4);
+    this.aF.array.set([p.fx, p.fy, p.fz, p.roll], i * 4);
+    this.aW.array.set([p.flap, p.amp, p.alpha, glow], i * 4);
+    if (col) this.aC.array.set(col, i * 3); else this.aC.array.fill(0, i * 3, i * 3 + 3);
+  }
+
+  /**
+   * Day-cycle light: sunScale/sunTint scale the dawn sun colour, skyScale the sky fill + haze (1, 1 = the dawn look).
+   * tint = [r,g,b] multiplier normalised to the dawn hue (1,1,1 = dawn).
+   */
+  setLight(sunScale = 1, skyScale = 1, tint = null) {
+    const L = BIRD_LIGHT, u = this.uniforms, t = tint || [1, 1, 1];
+    u.uSunC.value.set(L.sun[0] * sunScale * t[0], L.sun[1] * sunScale * t[1], L.sun[2] * sunScale * t[2]);
+    u.uSkyUp.value.set(L.skyUp[0] * skyScale, L.skyUp[1] * skyScale, L.skyUp[2] * skyScale);
+    u.uSkyDn.value.set(L.skyDn[0] * skyScale, L.skyDn[1] * skyScale, L.skyDn[2] * skyScale);
+    u.uHazeC.value.set(L.haze[0] * skyScale, L.haze[1] * skyScale, L.haze[2] * skyScale);
   }
 
   _trail(bp, a, p) {

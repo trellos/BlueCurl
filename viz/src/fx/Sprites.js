@@ -82,7 +82,7 @@ void main() {
   // their colour (≈ rgb / cover) instead of summing to white, and stay readable on the sun glitter
   float cover = vShape == 0 ? 0.6 : vShape == 1 ? 0.0 : vShape == 2 ? 0.6 : 0.55;
   float lum = max(vC.r, max(vC.g, vC.b));
-  gl_FragColor = vec4(vC.rgb * a, clamp(a * cover * min(1.0, lum * 0.5), 0.0, 0.85));
+  gl_FragColor = vec4(vC.rgb * a * uGain, clamp(a * cover * min(1.0, lum * 0.5), 0.0, 0.85) * min(1.0, uGain));
 }`;
 
 export class Sprites {
@@ -95,7 +95,7 @@ export class Sprites {
     g.setAttribute('iPos', this.aPos); g.setAttribute('iA', this.aA); g.setAttribute('iB', this.aB); g.setAttribute('iC', this.aC);
     g.instanceCount = 0;
     this.geometry = g;
-    this.uniforms = { uPxM: { value: 0.001 } };
+    this.uniforms = { uPxM: { value: 0.001 }, uGain: { value: 1 } };
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG, uniforms: this.uniforms,
       transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide, ...PREMULT,

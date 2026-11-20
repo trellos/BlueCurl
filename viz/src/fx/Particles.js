@@ -79,7 +79,7 @@ void main() {
   float r2 = dot(vQ, vQ);
   if (r2 > 1.0) discard;
   float a = exp(-r2 * 5.0) + 0.6 * exp(-r2 * 30.0);
-  gl_FragColor = vec4(vCol * a, clamp(0.5 * a * min(1.0, dot(vCol, vec3(0.5))), 0.0, 0.7));
+  gl_FragColor = vec4(vCol * a * uGain, clamp(0.5 * a * min(1.0, dot(vCol, vec3(0.5))), 0.0, 0.7) * min(1.0, uGain));
 }`;
 
 export class Particles {
@@ -90,7 +90,7 @@ export class Particles {
     g.instanceCount = 0;
     this.geometry = g;
     const arr = () => Array.from({ length: NE }, () => new THREE.Vector4());
-    this.uniforms = { uE0: { value: arr() }, uE1: { value: arr() }, uE2: { value: arr() }, uTime: { value: 0 }, uPxM: { value: 0.001 } };
+    this.uniforms = { uE0: { value: arr() }, uE1: { value: arr() }, uE2: { value: arr() }, uTime: { value: 0 }, uPxM: { value: 0.001 }, uGain: { value: 1 } };
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG, uniforms: this.uniforms,
       transparent: true, depthWrite: false, depthTest: true, ...PREMULT,

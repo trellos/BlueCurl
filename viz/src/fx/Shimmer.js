@@ -48,6 +48,7 @@ in vec2 vXZ;
 in float vNear;
 in float vDens;
 uniform float uTime;
+uniform float uGain;   // day cycle: 1 / post exposure (constant on-screen glow from dawn to dusk)
 float h21(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
 // twinkling glints on a jittered grid of cell size c (m)
 float glintAt(vec2 p, float c, float t, float dens) {
@@ -79,7 +80,7 @@ void main() {
   vec3 glintC = mix(vCol, vec3(1.0, 0.97, 0.9), 0.35) * vLev.y * g * across;
   vec3 col = (glowC + glintC) * fade;
   float cover = clamp(0.3 * across * min(1.0, vLev.x * 0.6) + 0.5 * g * across * min(1.0, vLev.y * 0.5), 0.0, 0.6) * fade;
-  gl_FragColor = vec4(col, cover);
+  gl_FragColor = vec4(col * uGain, cover * min(1.0, uGain));
 }`;
 
 export class Shimmer {
@@ -101,7 +102,7 @@ export class Shimmer {
     g.setIndex(idx);
     g.setDrawRange(0, 0);
     this.geometry = g;
-    this.uniforms = { uPxM: { value: 0.001 }, uTime: { value: 0 } };
+    this.uniforms = { uPxM: { value: 0.001 }, uTime: { value: 0 }, uGain: { value: 1 } };
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG, uniforms: this.uniforms,
       transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide, ...PREMULT,

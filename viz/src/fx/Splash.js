@@ -25,6 +25,9 @@ uniform vec4 uS2[NS];   // lane rgb, lane flash gain
 uniform float uTime;
 uniform float uPxM;
 uniform vec3 uSunDir;
+uniform vec3 uSunC;    // day cycle: sun colour on white water (dawn 1.0, 0.72, 0.45; follows the sun, 0 below the horizon)
+uniform vec3 uAmbC;    // sky light on white water (dawn 1.0, 0.95, 0.9; follows the sky ambient)
+uniform float uGain;   // 1/exposure for the emissive note flash / sparkle
 out vec2 vQ;
 out vec4 vCol;          // body colour × coverage, coverage
 out vec3 vRim;          // backlit rim colour × coverage (blobs: edges glow where the sun shines through)
@@ -172,16 +175,16 @@ void main() {
   float hg = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * mu, 1.5);   // 0.25 … 16 (×4π normalised)
   hg = min(hg, 3.0);                                   // no white blow-out in the sun-glare column
   float glare = smoothstep(0.93, 0.995, mu);           // looking straight into the sun: tone the body down
-  vec3 amb = vec3(1.0, 0.95, 0.9);                     // warm dawn sky on white water
-  vec3 sunC = vec3(1.0, 0.72, 0.45);
+  vec3 amb = uAmbC;                                    // sky on white water (dawn: warm)
+  vec3 sunC = uSunC;
   float thin = mode == 1 ? 1.0 : (k < 280 ? 0.6 : 0.9); // jet blobs are thick: less light through
   vec3 col = amb * (1.3 * bright * (1.0 - 0.3 * glare)) + sunC * hg * 0.12 * thin;
   vec3 rim = sunC * hg * 0.45 * thin;
   if (k >= 448 && k < 496) { col = amb * 1.0 + sunC * hg * 0.4; rim = vec3(0.0); } // mist: scattered sunlight
   if (mode == 1) { col += sunC * hg * 0.2; rim = vec3(0.0); }
-  if (mode >= 2) { col = vec3(0.95, 0.97, 0.98) * 1.35 + sunC * 0.1 * hg; rim = vec3(0.0); }
-  col += s2.rgb * s2.a * flash * 2.6;                   // the note's colour lighting the column base
-  col += vec3(1.0, 0.86, 0.6) * sparkle * (2.0 + 2.5 * min(1.0, hg * 0.2));
+  if (mode >= 2) { col = vec3(0.95, 0.97, 0.98) * 1.35 * dot(amb, vec3(0.333)) + sunC * 0.1 * hg; rim = vec3(0.0); }
+  col += s2.rgb * s2.a * flash * 2.6 * uGain;                  // the note's colour lighting the column base
+  col += vec3(1.0, 0.86, 0.6) * sparkle * (2.0 + 2.5 * min(1.0, hg * 0.2)) * uGain;
   // near fade (PiP / close cams): don't flood the frame
   float nf = smoothstep(4.0, 16.0, depth);
   vCol = vec4(col * cover * nf, cover * nf);
@@ -236,7 +239,8 @@ export class Splash {
     this.geometry = g;
     const arr = () => Array.from({ length: NS }, () => new THREE.Vector4());
     this.uniforms = { uS0: { value: arr() }, uS1: { value: arr() }, uS2: { value: arr() }, uTime: { value: 0 },
-      uPxM: { value: 0.001 }, uSunDir: { value: new THREE.Vector3(0.99, 0.1, -0.06) } };
+      uPxM: { value: 0.001 }, uSunDir: { value: new THREE.Vector3(0.99, 0.1, -0.06) },
+      uSunC: { value: new THREE.Vector3(1.0, 0.72, 0.45) }, uAmbC: { value: new THREE.Vector3(1.0, 0.95, 0.9) }, uGain: { value: 1 } };
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG, uniforms: this.uniforms,
       transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide, ...PREMULT,
@@ -255,6 +259,16 @@ export class Splash {
     this.uniforms.uS1.value[i].set(sp.H, sp.S, seed, sp.g);
     this.uniforms.uS2.value[i].set(col[0], col[1], col[2], gain);
     return true;
+  }
+  /**
+   * Day cycle: gain = 1/exposure (emissive flash / sparkles); sunK / skyK = sun / sky light relative to dawn (lit white
+   * water, scene-linear like the sea's foam); sunTint / skyTint = hue relative to dawn; sunUp 0..1 (above the horizon).
+   */
+  setLight(gain = 1, sunK = 1, skyK = 1, sunTint = [1, 1, 1], skyTint = [1, 1, 1], sunUp = 1) {
+    const u = this.uniforms;
+    u.uGain.value = gain;
+    u.uSunC.value.set(1.0 * sunTint[0], 0.72 * sunTint[1], 0.45 * sunTint[2]).multiplyScalar(sunK * sunUp);
+    u.uAmbC.value.set(1.0 * skyTint[0], 0.95 * skyTint[1], 0.9 * skyTint[2]).multiplyScalar(skyK);
   }
   end(t, pxm, sunDir) {
     for (let i = this.n; i < NS; i++) this.uniforms.uS1.value[i].x = 0;
