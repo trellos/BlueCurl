@@ -5,7 +5,7 @@ import { DT } from '../src/contracts.js';
 import { FixedClock } from '../src/core/clock.js';
 import { createPipState, pipStep, pipLayout, PIP_ANIM, PIP_DEFAULTS } from '../src/camera/pipPolicy.js';
 import { FollowCam, framing, distanceFor, FOLLOW, RIDER_HEIGHT } from '../src/camera/followCam.js';
-import { widePose, WIDE } from '../src/camera/wide.js';
+import { widePose, WIDE, PRESETS, PRESET_ORDER, nextPreset, presetFor } from '../src/camera/wide.js';
 
 const cfg = (o = {}) => ({ ...PIP_DEFAULTS, ...o });
 const ev = (t, type, riderId, extra = {}) => ({ t, type, riderId, frontId: riderId * 10, zi: 1, ...extra });
@@ -229,4 +229,18 @@ test('wide pose: drift is a small pure function of t', () => {
   }
   const s = widePose(5, WIDE, 0);
   assert.deepEqual([s.px, s.py, s.pz], WIDE.position);
+});
+
+test('camera presets: lineup is the default, C cycles lineup → point → cliff → lineup', () => {
+  assert.equal(WIDE, PRESETS.lineup);
+  assert.deepEqual(PRESET_ORDER, ['lineup', 'point', 'cliff']);
+  assert.equal(nextPreset('lineup'), 'point');
+  assert.equal(nextPreset('point'), 'cliff');
+  assert.equal(nextPreset('cliff'), 'lineup');
+  assert.equal(nextPreset(undefined), 'point');
+  assert.equal(presetFor('nope'), PRESETS.lineup);
+  for (const n of PRESET_ORDER) {
+    const p = PRESETS[n];
+    assert.ok(p.position.length === 3 && p.target.length === 3 && p.fov > 30 && p.fov < 90 && /^(top|bottom)-(left|right)$/.test(p.pipCorner));
+  }
 });

@@ -7,6 +7,8 @@
 //              tile's viewport, and the in-canvas label (rider name + style; captures include it).
 // this.pip = { active, riderId, rect {x,y,w,h} normalized (origin top-left), alpha, startedAt, phase, tiles: [...] }.
 //
+// Camera presets (wide.js): key C cycles lineup → point → cliff via app.input.setConfig('camera', name) (a logged
+// cfg event, so replays reproduce it); the rig reads app.cfg.camera. ?camera=<name> picks the start preset.
 // URL (debug): ?fakeride=1|all (src/camera/fakeRide.js test fixture; its events/riders are read too)
 //   ?fakewave=1 (debug wave patch around the fake ride) · ?widecam=px,py,pz,tx,ty,tz,fov · ?drift=0 · ?zonelines=1
 //   ?piplabel=0 (no tile label)
@@ -15,7 +17,7 @@ import { DT, ZONES, DEFAULT_CFG, uToZ, zToU, ambientHeight } from '../contracts.
 import * as field from '../wave/field.js';
 import * as KF from '../wave/keyframes.js';
 import { profileExtents } from '../wave/profile.js';
-import { WIDE, PIP_CORNER, widePose } from './wide.js';
+import { DEFAULT_PRESET, presetFor, nextPreset, widePose } from './wide.js';
 import { FollowCam } from './followCam.js';
 import { createPipState, pipStep, pipLayout, PIP_DEFAULTS } from './pipPolicy.js';
 import { FakeRides } from './fakeRide.js';
@@ -98,10 +100,11 @@ export class CameraRig {
     this.app = app;
     const qs = query();
     const flag = (k) => qs.has(k) && qs.get(k) !== '0' && qs.get(k) !== 'false';
-    this.base = { ...WIDE };
+    this.startPreset = ['lineup', 'point', 'cliff'].includes(qs.get('camera')) ? qs.get('camera') : DEFAULT_PRESET;
+    this.override = null;                                  // ?widecam= (debug) replaces every preset
     if (qs.get('widecam')) {
       const v = qs.get('widecam').split(',').map(Number);
-      if (v.length >= 6 && v.every(Number.isFinite)) this.base = { position: v.slice(0, 3), target: v.slice(3, 6), fov: v[6] || WIDE.fov };
+      if (v.length >= 6 && v.every(Number.isFinite)) this.override = { position: v.slice(0, 3), target: v.slice(3, 6), fov: v[6] || 60, pipCorner: null };
     }
     this.drift = qs.has('drift') ? Number(qs.get('drift')) : 1;
     this.fake = flag('fakeride') ? new FakeRides(app, { all: qs.get('fakeride') === 'all', wave: flag('fakewave') }) : null;
@@ -115,7 +118,26 @@ export class CameraRig {
     this._buf = new THREE.Vector2();
     this._warm = false;
     if (flag('zonelines')) this._zoneLines(app);
+    this._bindKeys();
     this.reset();
+  }
+
+  /** Active wide preset name (app.cfg.camera, else the start preset). */
+  presetName() { const n = this.app.cfg?.camera; return ['lineup', 'point', 'cliff'].includes(n) ? n : this.startPreset; }
+  /** Active wide pose: { position, target, fov, pipCorner }. */
+  preset() { return this.override || presetFor(this.presetName()); }
+
+  /** C: next camera preset, logged as a cfg event (deterministic replay). */
+  _bindKeys() {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.code !== 'KeyC') return;
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const next = nextPreset(this.presetName());
+      if (this.app.input?.setConfig) this.app.input.setConfig('camera', next);
+      else if (this.app.cfg) this.app.cfg.camera = next;
+    });
   }
 
   reset() {
@@ -136,10 +158,10 @@ export class CameraRig {
     });
   }
 
-  /** PiP config; the contracts' default corner means "the rig's choice" (wide.js PIP_CORNER for this frame). */
+  /** PiP config; corner 'auto' (or the contracts' default) means the active preset's corner. */
   pipCfg() {
     const c = { ...PIP_DEFAULTS, ...(this.app.cfg?.pip || {}) };
-    if (!c.corner || c.corner === DEFAULT_CFG.pip.corner) c.corner = PIP_CORNER;
+    if (!c.corner || c.corner === 'auto' || c.corner === DEFAULT_CFG.pip.corner) c.corner = this.preset().pipCorner || 'bottom-right';
     return c;
   }
 
@@ -221,7 +243,7 @@ export class CameraRig {
     const pcfg = this.pipCfg();
     if (!this._warm) this._warmUp(app, buf, pcfg);
 
-    const p = widePose(t, this.base, this.drift, this._pose), cam = app.camera;
+    const p = widePose(t, this.preset(), this.drift, this._pose), cam = app.camera;
     cam.position.set(p.px, p.py, p.pz);
     cam.lookAt(p.tx, p.ty, p.tz);
     if (cam.fov !== p.fov) { cam.fov = p.fov; cam.updateProjectionMatrix(); }

@@ -1,13 +1,27 @@
-// BlueCurl Swell — wide default view (WP7, owner of the pose since review round 1). Elevated above the headland's
-// west foot, centred on the point (~110 m away) so the breaking waves are big; the inside bay (left) and the
-// outer reef (right, under the sunrise) sit toward the edges, and the incoming swell runs out to the horizon on the
-// sun side. Foreground land ≈ 10 % of the frame; horizon ~31 % from the top. The PiP corner (PIP_CORNER) covers the
-// near water at the cliff foot, the least important area. WP2's SPOT_CAMERAS stays as a reference pose.
+// BlueCurl Swell — wide view presets (WP7, owner of the poses). Cycled with the C key, logged as cfg 'camera'
+// (app.input.setConfig('camera', name)) so replays reproduce it; the rig reads app.cfg.camera (default 'lineup').
+//   lineup  default: elevated above the headland, which frames the right side (cliff, sea stacks, palms); all three
+//           zones' break segments in frame (inside left, point centre ~128 m away, outer right under the sunrise),
+//           swell to the horizon, horizon ~25 % from the top. PiP bottom-left, over near water in the bay.
+//   point   closer on the point (~111 m): big barrels, inside/outer partly past the edges. PiP bottom-right.
+//   cliff   WP2's SPOT_CAMERAS.default (src/spot/layout.js) from the high bluff. PiP bottom-right.
 // Drift: a very slow, sub-metre float, a pure function of t (no state).
+import { SPOT_CAMERAS } from '../spot/layout.js';
 
-export const WIDE = { position: [0, 30, 30], target: [130, -6, -35], fov: 66 };
-/** Default PiP corner for this frame (used while cfg.pip.corner is the contracts' default). */
-export const PIP_CORNER = 'bottom-right';
+const S = SPOT_CAMERAS.default;
+export const PRESETS = {
+  lineup: { position: [0, 39.5, 60], target: [130, -15, -10], fov: 72, pipCorner: 'bottom-left' },
+  point: { position: [0, 30, 30], target: [130, -6, -35], fov: 66, pipCorner: 'bottom-right' },
+  cliff: { position: [...S.pos], target: [...S.target], fov: S.fov, pipCorner: 'bottom-right' },
+};
+export const PRESET_ORDER = ['lineup', 'point', 'cliff'];
+export const DEFAULT_PRESET = 'lineup';
+export const WIDE = PRESETS[DEFAULT_PRESET];
+/** Default PiP corner of the default preset (the rig uses the active preset's corner while cfg.pip.corner is auto). */
+export const PIP_CORNER = WIDE.pipCorner;
+
+export const presetFor = (name) => PRESETS[name] || PRESETS[DEFAULT_PRESET];
+export const nextPreset = (name) => PRESET_ORDER[(Math.max(0, PRESET_ORDER.indexOf(name)) + 1) % PRESET_ORDER.length];
 
 const TAU = 2 * Math.PI;
 
