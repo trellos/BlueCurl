@@ -10,6 +10,9 @@ import { depthAt, headlandS, xBay, SPOT } from './bathymetry.js';
  */
 export const SPOT_CAMERAS = {
   default: { pos: [-70, 54, 90], target: [150, 0, -37], fov: 55 },
+  // mirrors of WP7's src/camera/wide.js presets (the test asserts they match) so props keep their sightlines clear
+  lineup: { pos: [0, 48, 60], target: [130, -14, -15], fov: 72 },
+  point: { pos: [0, 30, 30], target: [130, -6, -35], fov: 66 },
 };
 
 /** Sight targets on and around each zone's break line (water level and wave-crest height). */
@@ -96,14 +99,12 @@ export function buildLayout({ seed = 7, cams = Object.values(SPOT_CAMERAS) } = {
     nBay++;
   }
 
-  // --- sea stacks off the north side of the tip (west faces seen from the headland)
-  const tx = SPOT.tipX, tz = SPOT.tipZ;     // relative to the tip, north of the point break
-  const stackCands = [[9, 22, 4.5, 14], [4, 39, 3.6, 10], [15, 13, 3, 8], [1, 57, 4, 12], [20, 27, 2.4, 6]];
-  for (const [ox, oz, r, h] of stackCands) {
-    const x = tx + ox, z = tz + oz;
-    const y = ground(x, z);
-    if (!clear(x, z, r, y + h)) continue;
-    stacks.push({ x, y: y - 1.0, z, r, h: h - y + 1.0, yaw: rnd() * 6.283, seed: stacks.length + 1 });
+  // --- rock stacks standing against the cliff toe north of the tip (x < 62, z > 45): out of every front's path
+  // (fronts fade for z > ~36 once x < 66), they frame the right of the lineup view. Base buried below sea level.
+  const stackCands = [[61.5, 49, 3.0, 13], [61, 63, 4.2, 20], [60, 75, 3.6, 18], [59.5, 86, 4.2, 22], [58, 97, 3.0, 15]];
+  for (const [x, z, r, h] of stackCands) {
+    if (!clear(x, z, r, h)) continue;
+    stacks.push({ x, y: -1.5, z, r, h: h + 1.5, yaw: rnd() * 6.283, seed: stacks.length + 1 });
   }
 
   // --- boulders along the cliff toe and on the point's rock platform
@@ -115,6 +116,7 @@ export function buildLayout({ seed = 7, cams = Object.values(SPOT_CAMERAS) } = {
     if (!onToe && !(onShelf && rnd() < 0.35)) continue;
     const y = ground(x, z);
     if (y > 4 || y < -3.5) continue;
+    if (y < 0.3 && !(x < 64 && z > 40) && z < 150) continue;     // wet boulders only where no front reaches
     const k = onShelf ? 0.5 + rnd() * 1.1 : 0.8 + rnd() * 2.0;
     if (!clear(x, z, k, y + k * 1.2)) continue;
     rocks.push({ x, y: y - k * 0.25, z, sx: k * (1 + rnd() * 0.5), sy: k * (0.6 + rnd() * 0.5), sz: k * (1 + rnd() * 0.5),
@@ -123,7 +125,7 @@ export function buildLayout({ seed = 7, cams = Object.values(SPOT_CAMERAS) } = {
   // a few at the bay corner, where the beach meets the headland
   for (let i = 0; i < 8; i++) {
     const z = SPOT.beachZ1 + 25 + rnd() * 18, x = xBay(z) + 1 + rnd() * 11, y = ground(x, z), k = 0.7 + rnd() * 1.4;
-    if (y < -2) continue;
+    if (y < 0.3) continue;                    // dry only: fronts run up this beach corner
     rocks.push({ x, y: y - k * 0.3, z, sx: k * 1.3, sy: k * 0.8, sz: k * 1.1, rx: rnd() * 0.5, ry: rnd() * 6.283, rz: rnd() * 0.5, shade: 0.8 + rnd() * 0.3 });
   }
 

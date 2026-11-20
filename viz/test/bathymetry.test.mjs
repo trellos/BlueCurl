@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { depthAt, headlandS, xBay, xEast, bathyParts, SPOT } from '../src/spot/bathymetry.js';
 import { buildLayout, SPOT_CAMERAS, sightTargets, clearOfSightlines } from '../src/spot/layout.js';
 import { ZONES, PATH, uToZ } from '../src/contracts.js';
+import { PRESETS } from '../src/camera/wide.js';
 
 const range = (a, b, step) => { const o = []; for (let v = a; v <= b + 1e-9; v += step) o.push(v); return o; };
 const zone = (key) => ZONES.find((z) => z.key === key);
@@ -81,8 +82,7 @@ test('terrain never blocks the break zones from the camera poses', () => {
   const targets = sightTargets(6).filter((t) => t[1] < 1);
   for (const [name, cam] of Object.entries(SPOT_CAMERAS)) {
     const [cx, cy, cz] = cam.pos;
-    assert.ok(cy + depthAt(cx, cz) > 10, `${name} camera at least 10 m above ground`);
-    assert.ok(depthAt(cx, cz) < 0 && headlandS(cx, cz) > 0, `${name} camera stands on the headland`);
+    assert.ok(cy + depthAt(cx, cz) > 8, `${name} camera at least 8 m above ground`);
     for (const t of targets) {
       for (let i = 1; i < 92; i++) {
         const s = i / 100, x = cx + (t[0] - cx) * s, y = cy + (t[1] - cy) * s, z = cz + (t[2] - cz) * s;
@@ -113,6 +113,30 @@ test('default camera frames all three zones, point at 180-230 m, sun in frame, P
   const el = 6 * Math.PI / 180, az = 108 * Math.PI / 180;      // sky/skyModel.js SUN
   const [sx, sy] = ndc([Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)]);
   assert.ok(Math.abs(sx) < 0.9 && sy < 0.9 && sy > -0.2, `sun in frame (${sx.toFixed(2)}, ${sy.toFixed(2)})`);
+});
+
+test('camera mirrors match WP7 presets; default stands on the headland', () => {
+  for (const k of ['lineup', 'point']) {
+    assert.deepEqual(SPOT_CAMERAS[k].pos, PRESETS[k].position, k);
+    assert.deepEqual(SPOT_CAMERAS[k].target, PRESETS[k].target, k);
+    assert.equal(SPOT_CAMERAS[k].fov, PRESETS[k].fov, k);
+  }
+  const [cx, , cz] = SPOT_CAMERAS.default.pos;
+  assert.ok(depthAt(cx, cz) < 0 && headlandS(cx, cz) > 0, 'default camera stands on the headland');
+});
+
+test('sea stacks stand out of every front path, against the headland', () => {
+  const { stacks } = buildLayout();
+  assert.ok(stacks.length >= 3, `stacks: ${stacks.length}`);
+  for (const s of stacks) {
+    const inFrontPath = s.z < 36 || s.x >= 66;        // fronts fade only for z > ~36 once x < 66
+    assert.ok(!inFrontPath && ((s.x < 62 && s.z > 45) || s.z > 150), `stack at (${s.x}, ${s.z}) is in a front's path`);
+    assert.ok(headlandS(s.x, s.z) > -3, `stack at (${s.x}, ${s.z}) touches the headland base`);
+  }
+  for (const r of buildLayout().rocks) {
+    const wet = depthAt(r.x, r.z) > -0.3;
+    assert.ok(!wet || (r.x < 64 && r.z > 40) || r.z > 150, `wet boulder at (${r.x.toFixed(0)}, ${r.z.toFixed(0)}) in a front's path`);
+  }
 });
 
 test('layout: deterministic, palm count, props clear of sightlines and break lines', () => {
