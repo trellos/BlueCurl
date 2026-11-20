@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 M='surf&fastload&colpx=18&surfrow=0.05'
 S24=0.041666666666666664   # 1/24 s
 CLIPS=(
+  "wave-closeout|$M&closeout&height=2.2&curl=1&steep=1.15&at=24&shot=closeout|18.5|26.5|0.05|20|0"
   "wave-beach-slowmo|$M&at=24&shot=beach|23|25.4|0.025|24|0"
   "wave-channel|$M&at=24&shot=channel|20|26|$S24|24|0"
   "wave-drone|$M&at=24&shot=drone|20|26|$S24|24|0"
