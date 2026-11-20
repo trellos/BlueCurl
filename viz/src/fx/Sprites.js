@@ -1,4 +1,4 @@
-// Instanced HDR glow sprites (WP5): flashes, star flares, rings on the water, crest streaks, light geysers.
+// Instanced HDR glow sprites (WP5): impact flashes and glows, rings on the water, crest streaks, splash rings.
 // One instanced draw, additive, depth-tested (with a bias toward the camera) but not depth-writing.
 //
 // Per instance:
@@ -78,8 +78,9 @@ void main() {
     float along = max(0.0, 1.0 - q.x * q.x);
     a = (exp(-q.y * q.y * 40.0) * 1.6 + 0.4 * exp(-q.y * q.y * 5.0)) * along * along * (1.0 - smoothstep(0.8, 1.0, abs(q.y)));
   }
-  // premultiplied: rgb adds light, alpha (coverage) tints what is underneath (keeps hits readable on sun glitter)
-  float cover = vShape == 0 ? 0.22 : vShape == 1 ? 0.0 : vShape == 2 ? 0.55 : 0.4;
+  // premultiplied 'over': rgb adds light, alpha (coverage) replaces what is underneath, so stacked hits converge to
+  // their colour (≈ rgb / cover) instead of summing to white, and stay readable on the sun glitter
+  float cover = vShape == 0 ? 0.6 : vShape == 1 ? 0.0 : vShape == 2 ? 0.6 : 0.55;
   float lum = max(vC.r, max(vC.g, vC.b));
   gl_FragColor = vec4(vC.rgb * a, clamp(a * cover * min(1.0, lum * 0.5), 0.0, 0.85));
 }`;

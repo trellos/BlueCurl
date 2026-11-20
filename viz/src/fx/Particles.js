@@ -67,7 +67,8 @@ void main() {
   gl_Position = projectionMatrix * mv;
   vQ = position.xy;
   vec4 e2 = uE2[slot];
-  vec3 c = kind == 1 ? mix(vec3(0.75, 0.95, 1.0), vec3(1.0), r6) : mix(e2.rgb, vec3(0.3, 0.9, 1.0), step(e2.a, r6));
+  // burst: the lane colour, a few pale sparkles (e2.a = fraction kept saturated); splash: white-cyan
+  vec3 c = kind == 1 ? mix(vec3(0.75, 0.95, 1.0), vec3(1.0), r6) : mix(e2.rgb, mix(e2.rgb, vec3(1.0, 0.95, 0.85), 0.55), step(e2.a, r6));
   vCol = c * bright * smoothstep(6.0, 30.0, -mv.z);
 }`;
 
@@ -78,7 +79,7 @@ void main() {
   float r2 = dot(vQ, vQ);
   if (r2 > 1.0) discard;
   float a = exp(-r2 * 5.0) + 0.6 * exp(-r2 * 30.0);
-  gl_FragColor = vec4(vCol * a, clamp(0.25 * a * min(1.0, dot(vCol, vec3(0.4))), 0.0, 0.6));
+  gl_FragColor = vec4(vCol * a, clamp(0.5 * a * min(1.0, dot(vCol, vec3(0.5))), 0.0, 0.7));
 }`;
 
 export class Particles {

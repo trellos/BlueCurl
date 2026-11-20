@@ -4,8 +4,6 @@
 import { hash01, FRONT_W } from '../contracts.js';
 
 export const FX_LIFE = 3.0;              // s an impulse keeps producing visuals (burst, rings, dolphin + splashes)
-export const GOLD = [1.0, 0.48, 0.06];
-export const CYAN = [0.06, 0.72, 1.0];
 export const WHITE = [1.0, 0.97, 0.9];
 
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -15,38 +13,52 @@ export const smoothstep = (a, b, x) => { const s = clamp01((x - a) / (b - a)); r
 export const mix3 = (a, b, s) => [lerp(a[0], b[0], s), lerp(a[1], b[1], s), lerp(a[2], b[2], s)];
 
 /**
- * Strength (scale·velocity; keyboard 1.0, Shift 0.4) → look. size: 0.45 (soft) … 1.0 (full) … 1.3 (cap);
- * warm: 0 = cyan (cool, soft notes) … 1 = gold (warm, strong notes).
+ * Lane colour: a warm → cool gradient across the crest (u = 0 south/screen-left … 1 north/right), gold → amber →
+ * light gold → seafoam → aqua → cyan (never magenta/purple), one stop per lane centre of the 8-lane keyboard.
+ */
+export const LANE_STOPS = [
+  [1.0, 0.6, 0.08], [1.0, 0.48, 0.1], [1.0, 0.58, 0.26], [1.0, 0.78, 0.42],
+  [0.55, 0.95, 0.78], [0.3, 0.9, 0.9], [0.15, 0.78, 1.0], [0.08, 0.6, 1.0],
+];
+/** Base of the subtle tint for light on the water (warm, sun-glint like); the lane colour is mixed in at 40 %. */
+export const WATER_WHITE = [1.0, 0.86, 0.62];
+export function laneColor(u, out = [0, 0, 0]) {
+  const n = LANE_STOPS.length, f = clamp(u * n - 0.5, 0, n - 1), i = Math.min(n - 2, Math.floor(f)), w = f - i;
+  const a = LANE_STOPS[i], b = LANE_STOPS[i + 1];
+  out[0] = lerp(a[0], b[0], w); out[1] = lerp(a[1], b[1], w); out[2] = lerp(a[2], b[2], w);
+  return out;
+}
+
+/**
+ * Strength (scale·velocity; keyboard 1.0, Shift 0.4) → size 0.45 (soft) … 1.0 (full) … 1.3 (cap) and gain
+ * (brightness multiplier, soft notes dimmer). Colour comes from the lane (laneColor), not the strength.
  */
 export function strengthStyle(strength) {
   const s = clamp(Number.isFinite(strength) ? strength : 1, 0.05, 1.8);
   const size = clamp(0.45 + (0.55 * (s - 0.4)) / 0.6, 0.3, 1.3);
-  const warm = smoothstep(0.35, 0.95, s);
-  return { s, size, warm, color: mix3(CYAN, GOLD, warm), accent: mix3(GOLD, CYAN, 0.35 + 0.65 * warm) };
+  return { s, size, gain: 0.55 + 0.45 * clamp(size, 0, 1.2) };
 }
 
 const ex = (age, tau) => (age < 0 ? 0 : Math.exp(-age / tau));
 
 /**
- * Sizes (m) and HDR intensities of the impact sprites at `age` s after the hit. All envelopes peak at age 0
- * (instant attack) so the hit is fully visible on the next rendered frame. lanes sets the crest streak length.
+ * Sizes (m) and HDR intensities (before the lane colour) of the impact sprites at `age` s after the hit. All
+ * envelopes peak at age 0 (instant attack) so the hit is visible on the next rendered frame. Intensities stay
+ * moderate (≤ ~5) and the sprites blend with coverage, so stacked hits converge to their colour, never white.
  */
 export function impactLook(strength, age, lanes = 8) {
-  const st = strengthStyle(strength), k = st.size, a = Math.max(0, age);
+  const st = strengthStyle(strength), k = st.size, g = st.gain, a = Math.max(0, age);
   const lane = FRONT_W / (lanes || 8);
   const grow = 1 - Math.exp(-a / 0.35);
   return {
     st,
-    coreR: (9 + 13 * k) * (1 + 0.6 * (1 - ex(a, 0.08))), coreI: (8 + 18 * k * k) * ex(a, 0.12),
-    glowR: (22 + 26 * k) * (0.8 + 0.4 * grow),           glowI: (0.6 + 1.4 * k) * ex(a, 0.5),
-    flareL: (34 + 56 * k) * (1 + 0.5 * grow),            flareI: (2 + 6 * k) * ex(a, 0.22),
-    ringR: (6 + (20 + 30 * k) * grow),                   ringI: (1.6 + 3.4 * k) * ex(a, 0.45),
+    coreR: (10 + 14 * k) * (1 + 0.5 * (1 - ex(a, 0.08))), coreI: (2.6 + 3.2 * g) * ex(a, 0.2),
+    glowR: (26 + 30 * k) * (0.8 + 0.4 * grow),           glowI: (0.9 + 1.3 * g) * ex(a, 0.6),
+    ringR: (6 + (20 + 30 * k) * grow),                   ringI: (1.2 + 2.2 * g) * ex(a, 0.5),
     ring2R: a < 0.15 ? 0 : 4 + (13 + 20 * k) * (1 - Math.exp(-(a - 0.15) / 0.4)),
-    ring2I: a < 0.15 ? 0 : (1.2 + 2.6 * k) * ex(a - 0.15, 0.4),
+    ring2I: a < 0.15 ? 0 : (0.9 + 1.6 * g) * ex(a - 0.15, 0.45),
     streakL: lane * (0.6 + 0.8 * k) * (0.45 + 0.55 * (1 - Math.exp(-a / 0.12))),
-    streakW: 2.5 + 3 * k,                                streakI: (1.4 + 4 * k) * ex(a, 0.5),
-    geyserH: (16 + 28 * k) * (0.5 + 0.5 * (1 - Math.exp(-a / 0.1))), geyserW: 2 + 2.5 * k,
-    geyserI: (1.8 + 5 * k) * ex(a, 0.25),
+    streakW: 2.5 + 3 * k,                                streakI: (1.2 + 2.4 * g) * ex(a, 0.55),
   };
 }
 
@@ -55,7 +67,7 @@ export function impactLook(strength, age, lanes = 8) {
 export const KIND_BURST = 0, KIND_SPLASH = 1;
 export const PARTICLE = [
   // burst: sparkles flung off the crest, spread along it (along), linear drag so they burst then hang
-  { speed: [14, 38], elev: [0.3, 1.45], drag: 1.15, g: 7.5, life: [1.1, 2.4], size: [0.8, 1.8], along: 1.9, I: [3, 9], n: 320 },
+  { speed: [14, 38], elev: [0.3, 1.45], drag: 1.15, g: 7.5, life: [1.1, 2.4], size: [0.8, 1.8], along: 1.9, I: [1.6, 4.5], n: 320 },
   // splash: white water at a dolphin exit/entry
   { speed: [2.5, 8], elev: [0.95, 1.52], drag: 0.45, g: 9.81, life: [0.5, 1.1], size: [0.25, 0.55], along: 1.0, I: [1.4, 3.0], n: 150 },
 ];
@@ -138,13 +150,34 @@ export function jumpSplashes(jp) {
 }
 
 // ------------------------------------------------------------------------------- front shimmer
-/** Brightness (HDR) of a front's shimmer line: grows with accumulated energy, pulses with each impulse. */
-export function shimmerLevel(energySum, pulse, targetW) {
-  const eN = 1 - Math.exp(-energySum / 4);
-  return {
-    eN,
-    core: targetW * (0.7 + 2.6 * eN) + 2.5 * pulse,
-    halo: targetW * (0.12 + 0.55 * eN) + 0.6 * pulse,
-    width: 1 + 1.6 * eN + 0.8 * Math.min(1, pulse),
-  };
+export const SHIMMER = {
+  e0: 0.08,          // column energy giving 63 % of full line strength (one strong hit peaks ≈ 0.031 per column)
+  minE: 0.004,       // below this a column has no line (ambient fronts: none at all)
+  pulseV: 32,        // m/s a hit's pulse travels along the line (both ways)
+  pulseLife: 1.6,    // s
+};
+/** 0..1 line strength of a column from its accumulated energy. */
+export const lineLevel = (e) => (e > SHIMMER.minE ? 1 - Math.exp(-(e - SHIMMER.minE) / SHIMMER.e0) : 0);
+/**
+ * Pulse of one hit at distance dz (m, along the crest) and age a: a local flash plus two packets travelling
+ * outward along the line, widening and fading.
+ */
+export function hitPulse(dz, a, gain = 1) {
+  if (a < 0 || a > SHIMMER.pulseLife) return 0;
+  const d = Math.abs(dz), w = 10 + 14 * a, r = SHIMMER.pulseV * a;
+  const travel = Math.exp(-(((d - r) / w) ** 2)) * Math.exp(-a / 0.55);
+  const flash = Math.exp(-((d / 18) ** 2)) * Math.exp(-a / 0.25);
+  return gain * (travel + 1.4 * flash);
 }
+/**
+ * Fade of a column's shimmer as it breaks (contracts.localTau): 1 while unbroken (zi < 0), fading once τ > 0 and gone
+ * by τ = 0.3, then 0 on broken and re-forming water (the wave renderer's foam takes over).
+ */
+export function breakFade(tau, zi) {
+  if (zi < 0) return 1;
+  return 1 - smoothstep(0, 0.3, tau);
+}
+/** Fade by water depth (m): none over land / the shore (< 0.5 m), full from 2 m. */
+export const depthFade = (d) => smoothstep(0.5, 2.0, d);
+/** Fade by crest x: gone once the front is inside the point (x < ~90). */
+export const insideFade = (x) => smoothstep(88, 112, x);

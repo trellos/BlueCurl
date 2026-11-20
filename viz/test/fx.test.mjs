@@ -2,28 +2,35 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   strengthStyle, impactLook, particleLocal, emitterCount, KIND_BURST, KIND_SPLASH, PARTICLES_PER_EMITTER,
-  jumpParams, dolphinPose, jumpSplashes, shimmerLevel, GOLD, CYAN,
+  jumpParams, dolphinPose, jumpSplashes, laneColor, LANE_STOPS, lineLevel, hitPulse, breakFade, depthFade, insideFade, SHIMMER,
 } from '../src/fx/fxMath.js';
 
-test('strength → size/warmth: soft notes smaller and cooler, monotone', () => {
+test('strength → size/gain: soft notes smaller and dimmer, monotone', () => {
   const soft = strengthStyle(0.4), hard = strengthStyle(1.0);
   assert.ok(Math.abs(soft.size - 0.45) < 1e-9 && Math.abs(hard.size - 1) < 1e-9);
-  assert.ok(soft.warm < 0.15 && hard.warm > 0.95);
-  assert.ok(soft.color[2] > soft.color[0], 'soft is cyan-ish');
-  assert.ok(hard.color[0] > hard.color[2], 'hard is gold-ish');
+  assert.ok(soft.gain < hard.gain);
   let prev = -1;
   for (let s = 0; s <= 2; s += 0.05) { const v = strengthStyle(s).size; assert.ok(v >= prev - 1e-12); prev = v; }
   assert.deepEqual(strengthStyle(NaN), strengthStyle(1));
-  assert.ok(GOLD[0] > GOLD[2] && CYAN[2] > CYAN[0]);
 });
 
-test('impact look: peaks at age 0 (next-frame visible), strong > soft, decays', () => {
+test('lane colours: gold → cyan across the crest, never magenta/purple, exact at lane centres', () => {
+  for (let l = 0; l < 8; l++) assert.deepEqual(laneColor((l + 0.5) / 8), LANE_STOPS[l]);
+  const a = laneColor(0.0625), b = laneColor(0.9375);
+  assert.ok(a[0] > a[2] && b[2] > b[0], 'lane 1 warm, lane 8 cool');
+  for (let u = 0; u <= 1; u += 0.01) {
+    const c = laneColor(u);
+    assert.ok(Math.max(...c) <= 1 && c[1] > Math.min(c[0], c[2]), 'green never the weakest channel (no magenta/purple)');
+  }
+});
+
+test('impact look: peaks at age 0 (next-frame visible), strong > soft, moderate HDR (no white-out), decays', () => {
   const s0 = impactLook(0.4, 0), h0 = impactLook(1, 0), h1 = impactLook(1, 1.5);
-  for (const k of ['coreR', 'coreI', 'glowR', 'flareL', 'flareI', 'streakL', 'streakI', 'geyserI']) assert.ok(h0[k] > s0[k], k);
-  assert.ok(h0.coreI > 4 && s0.coreI > 4, 'core above the bloom threshold (4) for every note');
-  assert.ok(h0.coreI === impactLook(1, -0.01).coreI || impactLook(1, -0.01).coreI >= h0.coreI);
+  for (const k of ['coreR', 'coreI', 'glowR', 'glowI', 'ringI', 'streakL', 'streakI']) assert.ok(h0[k] > s0[k], k);
+  assert.ok(h0.coreI > 4 && s0.coreI > 4, 'core reaches the bloom threshold (4) for every note');
+  assert.ok(h0.coreI <= 6.5 && impactLook(1.8, 0).coreI <= 7, 'core stays coloured (no huge HDR)');
   assert.ok(impactLook(1, 1 / 120).coreI > 0.9 * h0.coreI, 'still ≥ 90 % one sim step later');
-  assert.ok(h1.coreI < 0.01 * h0.coreI && h1.flareI < 0.01 * h0.flareI);
+  assert.ok(h1.coreI < 0.01 * h0.coreI);
   assert.ok(h1.ringR > h0.ringR, 'ring expands');
   assert.ok(impactLook(1, 0, 15).streakL < impactLook(1, 0, 8).streakL, 'streak spans ± a lane');
 });
@@ -77,8 +84,25 @@ test('dolphin jump: deterministic from id, ~1.4 s arc, under water at the ends, 
   assert.ok(Math.abs(dolphinPose(jp, a.t).y) < 1e-9 && Math.abs(dolphinPose(jp, b.t).y) < 1e-9);
 });
 
-test('shimmer grows with energy and pulses', () => {
-  const l0 = shimmerLevel(0, 0, 1), l1 = shimmerLevel(4, 0, 1), l2 = shimmerLevel(4, 1, 1);
-  assert.ok(l1.core > l0.core && l2.core > l1.core && l1.width > l0.width);
-  assert.equal(shimmerLevel(4, 0, 0).core, 0);
+test('shimmer line: none without energy, grows with energy, hit pulses travel, fades as the column breaks', () => {
+  assert.equal(lineLevel(0), 0);
+  assert.equal(lineLevel(SHIMMER.minE * 0.5), 0);
+  assert.ok(lineLevel(0.03) > 0.2 && lineLevel(0.3) > lineLevel(0.03) && lineLevel(5) <= 1);
+  // pulse: centred at the hit at first, then a packet ~pulseV·a away
+  assert.ok(hitPulse(0, 0) > hitPulse(30, 0));
+  const a = 0.8, r = SHIMMER.pulseV * a;
+  assert.ok(hitPulse(r, a) > hitPulse(0, a), 'travels outward');
+  assert.equal(hitPulse(r, a), hitPulse(-r, a), 'both ways');
+  assert.equal(hitPulse(0, SHIMMER.pulseLife + 0.1), 0);
+  assert.ok(hitPulse(0, 0, 0.6) < hitPulse(0, 0, 1));
+  // break fade: full while unbroken, fading for tau 0 → 0.3, gone on broken / re-forming water
+  assert.equal(breakFade(-1, -1), 1);
+  assert.equal(breakFade(-0.1, -1), 1);
+  assert.equal(breakFade(0, 0), 1);
+  assert.ok(breakFade(0.15, 0) > 0 && breakFade(0.15, 0) < 1);
+  assert.equal(breakFade(0.3, 1), 0);
+  assert.equal(breakFade(1.5, 1), 0);
+  // never over land / the shore, gone inside the point
+  assert.equal(depthFade(0.3), 0); assert.equal(depthFade(-2), 0); assert.equal(depthFade(5), 1);
+  assert.equal(insideFade(80), 0); assert.equal(insideFade(165), 1);
 });
