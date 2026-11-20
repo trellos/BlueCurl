@@ -7,6 +7,7 @@ import { DT, ENTRY_ORDER, RIDERS } from '../src/contracts.js';
 import { InputBus } from '../src/input/input.js';
 import { depthAt } from '../src/spot/bathymetry.js';
 import { simulate } from '../tools/rides-report.mjs';
+import { TRAVEL_V } from '../src/riders/Riders.js';
 
 const demoBeat = JSON.parse(fs.readFileSync(new URL('../demo/demo-beat.json', import.meta.url), 'utf8'));
 const NAME = Object.fromEntries(RIDERS.map((R) => [R.id, R.name]));
@@ -29,7 +30,7 @@ function noteLog(counts, starts = counts.map((_, m) => 2 * m), extra = (bus) => 
 
 /** Run with a real Beat; collect events, downbeats, per-step checks. */
 function run(demo, until) {
-  const out = { events: [], downs: [], bad: [], nan: 0, inWrong: [], trace: [], maxStep: 0, wantedAt: new Map(),
+  const out = { events: [], downs: [], bad: [], nan: 0, inWrong: [], trace: [], maxStep: 0, wantedAt: new Map(), legs: [], vmax: {}, open: new Map(),
     stateAt: [], takeoffBad: [], seen: new Set(), seenDown: new Set() };
   const prev = new Map(), prevPos = new Map();
   const res = simulate(demo, {
@@ -52,7 +53,15 @@ function run(demo, until) {
         for (const v of [r.pos.x, r.pos.y, r.pos.z, r.fwd.x, r.up.y, r.speed]) if (!Number.isFinite(v)) out.nan++;
         const pp = prevPos.get(r.id);
         if (pp && (r.state === 'ENTER' || r.state === 'LEAVE') && pp.state === r.state) {
-          out.maxStep = Math.max(out.maxStep, Math.hypot(r.pos.x - pp.x, r.pos.z - pp.z));
+          const d = Math.hypot(r.pos.x - pp.x, r.pos.z - pp.z);
+          out.maxStep = Math.max(out.maxStep, d);
+          out.vmax[r.kind] = Math.max(out.vmax[r.kind] ?? 0, d / DT);
+          out.open.get(r.id).len += d;
+        }
+        // ENTER / LEAVE legs: path length and duration
+        if ((r.state === 'ENTER' || r.state === 'LEAVE') && (!pp || pp.state !== r.state)) out.open.set(r.id, { kind: r.kind, name: r.name, state: r.state, t0: t, len: 0 });
+        else if (pp && (pp.state === 'ENTER' || pp.state === 'LEAVE') && pp.state !== r.state) {
+          const L = out.open.get(r.id); out.legs.push({ ...L, dur: t - L.t0, to: r.state }); out.open.delete(r.id);
         }
         prevPos.set(r.id, { x: r.pos.x, z: r.pos.z, state: r.state });
       }
@@ -107,15 +116,26 @@ test('entry takes exactly entryMeasures (4) measures: arrival on the downbeat, a
     assert.ok(a.downs.some((d) => d.index === e.measure && Math.abs(d.t - e.t) < DT / 2), 'arrival is on a downbeat');
   }
   // smooth swim: no jumps (≤ 0.25 m per step at these distances / 8 s)
-  assert.ok(a.maxStep < 0.25, `max step ${a.maxStep}`);
+  assert.ok(a.maxStep < 0.12, `max step ${a.maxStep}`);
 });
 
-test('surfers come from / go to the beach, animals from / to open sea', () => {
+test('plausible swim / paddle speeds: start / exit points sit TRAVEL_V × duration away (surfers: shore if near)', () => {
   const a = beatRun();
+  assert.ok(a.legs.length >= 14, `legs ${a.legs.length}`);
+  for (const L of a.legs) {
+    const v = L.len / L.dur, V = TRAVEL_V[L.kind];
+    // easing: the path is exactly V·T unless a surfer's nearby shore stretched it (≤ 1.35×)
+    assert.ok(v <= 1.36 * V && v >= (L.kind === 'surfer' ? 0.9 : 0.97) * V, `${L.name} ${L.state} ${v.toFixed(2)} m/s (V ${V})`);
+  }
+  for (const [kind, vm] of Object.entries(a.vmax)) assert.ok(vm <= 1.36 * 1.3 * TRAVEL_V[kind] + 0.05, `${kind} peak ${vm.toFixed(2)} m/s`);
   for (const e of [...of(a, 'enter'), ...of(a, 'gone')]) {
     const R = RIDERS[e.riderId];
-    if (R.kind === 'surfer') assert.ok(e.pos.x < 6 && depthAt(e.pos.x, e.pos.z) < 1.5, `${R.name} ${e.type} at ${e.pos.x.toFixed(1)}`);
-    else assert.ok(e.pos.x >= 140 && depthAt(e.pos.x, e.pos.z) > 4, `${R.name} ${e.type} at ${e.pos.x.toFixed(1)}`);
+    assert.ok(depthAt(e.pos.x, e.pos.z) >= 0.29, `${R.name} ${e.type} on land`);
+  }
+  // animals come in from / leave toward the open sea (seaward of where they are going / were)
+  for (const e of of(a, 'enter')) if (RIDERS[e.riderId].kind !== 'surfer') {
+    const ar = of(a, 'arrive', e.riderId)[0];
+    assert.ok(e.pos.x > ar.pos.x + 10, `${RIDERS[e.riderId].name} came from x ${e.pos.x.toFixed(1)}`);
   }
 });
 
@@ -199,7 +219,7 @@ test('a bpm change mid-entry: arrival still exactly on the downbeat of enter mea
   assert.equal(ar.measure, en.measure + 4);
   assert.ok(Math.abs(ar.t - 16) < DT / 2, `arrived at ${ar.t}`);
   assert.ok(Math.abs(a.riders.riders[flip].arriveT - 16) < 1e-9, `arriveT ${a.riders.riders[flip].arriveT}`);
-  assert.ok(a.maxStep < 0.25, `max step ${a.maxStep}`);
+  assert.ok(a.maxStep < 0.12, `max step ${a.maxStep}`);
   assert.deepEqual(a.bad, []);
 });
 

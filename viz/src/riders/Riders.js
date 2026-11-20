@@ -24,7 +24,7 @@ import { RIDERS, ZONES, ENTRY_ORDER, DT, FRONT_W, uToZ, zToU, hash01, breakStart
 import { sampleFront, barrel, columnState, evalLocal, crossings } from '../wave/field.js';
 import { profileInto } from '../wave/profile.js';
 import { pathSpline, pathEval } from '../sim/swell.js';
-import { depthAt, xBay } from '../spot/bathymetry.js';
+import { depthAt } from '../spot/bathymetry.js';
 import {
   waveFrame, uOfS, sOfU, curlS, tauAt, faceSigma, chooseStyle, buildPlan, evalPlan, sigmaOfH, H_TOE, SIG_BACK, seaLevel,
 } from './plan.js';
@@ -47,24 +47,46 @@ const TAU_CLOSE = 0.85;      // the break overtook the rider
 const HOP = { surfer: 0.7, dolphin: 2.0, seal: 0.8, turtle: 0.5 };
 const ACC = { surfer: 4, dolphin: 14, seal: 7, turtle: 4 };          // m/s², paddling / swimming acceleration
 const SWIM_OFF = { surfer: 0, dolphin: -0.4, seal: -0.15, turtle: -0.2 };   // swimming depth (vertical offset)
-const OFFSHORE = { dolphin: 100, seal: 70, turtle: 60 };  // m seaward of the lineup where animals come from / go to
-const OPEN_SEA_X = 140;                                    // animals come from / go to at least this far out (past the point)
-const BEACH_Z0 = -45, BEACH_Z1 = -22;                     // bay beach stretch surfers use (left edge of the wide view)
+// ENTER / LEAVE last exactly entryMeasures measures, so the distance is what is chosen: a plausible average speed per
+// kind × that duration. Surfers start from (end at) the nearest shore — beach or headland rocks — when it is within
+// SHORE_SLACK × that distance, otherwise that far out toward it; animals surface / dive that far seaward.
+export const TRAVEL_V = { surfer: 2.8, dolphin: 7, seal: 4, turtle: 3 };   // m/s average
+const SHORE_SLACK = 1.35;
+const measureLenOf = (cfg) => { const bpm = +cfg?.bpm; return 240 / (Number.isFinite(bpm) && bpm > 0 ? clamp(bpm, 1, 1000) : 120); };
 const PRESENT_IDLE = new Set(['LINEUP', 'RETURN', 'POSITION']);   // can leave right away (no ride in progress)
 const SWIMMING = new Set(['LINEUP', 'POSITION', 'RETURN', 'ENTER', 'LEAVE', 'ASHORE']);   // on the sea surface
 /** Entry / exit easing: gentle start and landing (velocity 0.4× average at both ends, 1.3× peak). */
 const easeIO = (p) => 0.4 * p + 0.6 * smooth(p);
 
-/** Shoreline point of the bay beach at z: first x seaward of the beach with ≥ 0.3 m of water. */
-export function beachPoint(z) {
-  let x = xBay(z);
-  for (let i = 0; i < 80 && depthAt(x, z) < 0.3; i++) x += 0.25;
-  return { x, z };
+/** Nearest shore from (x, z) within maxD: { x, z (last point with ≥ 0.3 m of water), d } on 72 rays, or the ray
+ *  direction toward the nearest shore found within 250 m ({ dx, dz, d: Infinity } if it is beyond maxD). */
+export function nearestShore(x, z, maxD) {
+  let best = null;
+  for (let k = 0; k < 72; k++) {
+    const a = (k / 72) * 2 * Math.PI, dx = Math.cos(a), dz = Math.sin(a);
+    const lim = Math.min(250, best ? best.d : 250);
+    for (let s = 0.5; s <= lim; s += 0.5) {
+      if (depthAt(x + dx * s, z + dz * s) < 0.3) { best = { dx, dz, d: s }; break; }
+    }
+  }
+  if (!best) return { dx: -1, dz: 0, d: Infinity };
+  if (best.d > maxD) return { dx: best.dx, dz: best.dz, d: Infinity };
+  const s = Math.max(0, best.d - 0.5);
+  return { x: x + best.dx * s, z: z + best.dz * s, dx: best.dx, dz: best.dz, d: s };
 }
-/** Where a rider comes from / goes to: surfers the beach, animals open sea seaward of (x, z) and its lineup. */
-function exitPoint(kind, x, z, home) {
-  if (kind === 'surfer') return beachPoint(clamp(z, BEACH_Z0, BEACH_Z1));
-  return { x: Math.max(OPEN_SEA_X, Math.max(x, home.x) + (OFFSHORE[kind] ?? 70)), z };
+/**
+ * Where a rider comes from / goes to, `dist` m (= TRAVEL_V × duration) from (x, z): surfers the nearest beach /
+ * rocks if within SHORE_SLACK·dist, else dist toward it; animals dist out to sea (seaward ± ~23°, seeded by h).
+ */
+export function exitPoint(kind, x, z, dist, h = 0.5) {
+  if (kind === 'surfer') {
+    const s = nearestShore(x, z, SHORE_SLACK * dist);
+    return Number.isFinite(s.d) ? { x: s.x, z: s.z } : { x: x + s.dx * dist, z: z + s.dz * dist };
+  }
+  for (const a of [(h - 0.5) * 0.8, 0]) {
+    const p = { x: x + dist * Math.cos(a), z: z + dist * Math.sin(a) };
+    if (depthAt(p.x, p.z) > 3 || a === 0) return p;
+  }
 }
 
 export class Riders {
@@ -87,7 +109,8 @@ export class Riders {
       // entry lineup: the rider's first zone (surfers paddle there from the beach, animals swim in from open sea)
       const ezi = zi;
       const eh = homes[R.id][ezi];
-      const spawn = exitPoint(R.kind, eh.x, R.kind === 'surfer' ? eh.z + 4 * (hash01(R.id, 77, seed) - 0.5) : eh.z, eh);
+      // where it waits ashore (recomputed at the enter for the then measure length)
+      const spawn = exitPoint(R.kind, eh.x, eh.z, TRAVEL_V[R.kind] * this.entryMeasures * measureLenOf(this.cfg), hash01(R.id, 77, seed));
       const inAtStart = R.id === ENTRY_ORDER[0];
       const h = inAtStart ? homes[R.id][zi] : spawn;
       const r = {
@@ -202,12 +225,20 @@ export class Riders {
   _startEnter(r, b, t, swell, beat) {
     b.homeZi = b.entryZi;
     const h = b.homes[b.homeZi];
-    b.path = { x0: b.wx, z0: b.wz, x1: h.x, z1: h.z };
     b.enterIdx = beat.measure; b.arriveIdx = beat.measure + this.entryMeasures;
+    const arriveT = this._predictArrive(b, beat);
+    if (r.state === 'ASHORE') {
+      // (re)appear where this entry's duration makes a plausible swim / paddle (hidden until now: no smoothing)
+      const sp = exitPoint(r.kind, h.x, h.z, TRAVEL_V[r.kind] * Math.max(0.5, arriveT - t), hash01(r.id, 77, this.cfg?.seed ?? 1));
+      b.wx = sp.x; b.wz = sp.z; b.spawn = sp;
+    }
+    b.path = { x0: b.wx, z0: b.wz, x1: h.x, z1: h.z };
     b.ride = null; b.leaving = false; b.idle = null; b.nRides = 0;
     r.frontId = null; r.zi = -1; r.style = null; r.tube = false;
-    r.present = true; r.enterT = t; r.exitT = null; r.arriveT = this._predictArrive(b, beat);
+    const wasAshore = r.state === 'ASHORE';
+    r.present = true; r.enterT = t; r.exitT = null; r.arriveT = arriveT;
     this._setState(r, b, 'ENTER', t);
+    if (wasAshore) { b.cont = false; b.prev = null; b.err.x = b.err.y = b.err.z = 0; b.rawY = null; b.mv.x = b.mv.z = 0; }
     this._emit({ t, type: 'enter', riderId: r.id, pos: { x: b.wx, y: this._surf(swell, b.wx, b.wz, t), z: b.wz } });
   }
 
@@ -221,9 +252,10 @@ export class Riders {
   }
 
   _startLeave(r, b, t, dur) {
-    const h = b.homes[b.homeZi];
-    // turning round on the way in: straight back to where it came from; otherwise the beach / open sea
-    const e = r.state === 'ENTER' && b.path ? { x: b.path.x0, z: b.path.z0 } : exitPoint(r.kind, b.wx, b.wz, h);
+    // turning round on the way in: straight back to where it came from (same speed); otherwise the nearest shore /
+    // open sea at a plausible distance for the duration
+    const e = r.state === 'ENTER' && b.path ? { x: b.path.x0, z: b.path.z0 }
+      : exitPoint(r.kind, b.wx, b.wz, TRAVEL_V[r.kind] * dur, hash01(r.id, Math.round(t * 8), (this.cfg?.seed ?? 1) + 9));
     b.path = { x0: b.wx, z0: b.wz, x1: e.x, z1: e.z, t0: t, dur };
     r.exitT = t + dur;
     b.ride = null; b.leaving = false; b.enterIdx = b.arriveIdx = null;
