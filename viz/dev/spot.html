@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlueCurl Spot (dev)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #10141c; overflow: hidden; }
+  canvas { display: block; }
+  #info { position: fixed; left: 8px; top: 8px; font: 12px/1.35 ui-monospace, monospace; color: #dfe8f0;
+          background: rgba(0,0,0,.45); padding: 6px 8px; border-radius: 4px; white-space: pre; pointer-events: none; }
+  #pip { position: fixed; right: 0; bottom: 0; width: 33.333%; height: 33.333%; outline: 2px dashed rgba(255,255,255,.55);
+         display: none; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="info"></div>
+<div id="pip"></div>
+<script type="module" src="./spot.js"></script>
+</body>
+</html>
