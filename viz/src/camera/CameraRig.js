@@ -21,10 +21,22 @@ import { DEFAULT_PRESET, presetFor, nextPreset, widePose } from './wide.js';
 import { FollowCam } from './followCam.js';
 import { createPipState, pipStep, pipLayout, PIP_DEFAULTS } from './pipPolicy.js';
 import { FakeRides } from './fakeRide.js';
+import { PushIn } from './push.js';
 
 const query = () => (typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams());
 const STYLE_LABEL = { cruise: 'cruising', carve: 'carving', tube: 'in the tube', porpoise: 'porpoising', breach: 'breaching' };
-const STATE_LABEL = { TAKEOFF: 'take-off', KICKOUT: 'kick-out', CLOSEOUT: 'wipe-out', RETURN: 'paddling back', LINEUP: 'lineup', POSITION: 'paddling in' };
+// state labels per kind (surfers paddle, animals swim)
+const STATE_LABEL = {
+  surfer: { TAKEOFF: 'take-off', KICKOUT: 'kick-out', CLOSEOUT: 'wipe-out', RETURN: 'paddling back', LINEUP: 'in the lineup', POSITION: 'paddling into position' },
+  animal: { TAKEOFF: 'catching the wave', KICKOUT: 'pulling off', CLOSEOUT: 'tumbling', RETURN: 'swimming back', LINEUP: 'cruising the lineup', POSITION: 'swimming into position' },
+};
+export function riderLabel(rd) {
+  if (!rd) return '';
+  const S = STATE_LABEL[rd.kind === 'surfer' ? 'surfer' : 'animal'];
+  if (rd.state === 'RIDE') return rd.tube ? STYLE_LABEL.tube : rd.style === 'tube' ? 'pulling in' : STYLE_LABEL[rd.style] || 'riding';
+  if (rd.state === 'TAKEOFF' && rd.tube) return STYLE_LABEL.tube;
+  return S[rd.state] || '';
+}
 const RIDING = new Set(['TAKEOFF', 'RIDE']);
 const SIGMA_CREST = KF.SIGMA_CREST ?? 24 / 95;
 
@@ -127,6 +139,14 @@ export class CameraRig {
   /** Active wide pose: { position, target, fov, pipCorner }. */
   preset() { return this.override || presetFor(this.presetName()); }
 
+  /** Active wide pose incl. the lineup push-in (cfg.cameraPush; 'point' / 'cliff' and ?widecam stay static). */
+  widePreset() {
+    const base = this.preset();
+    if (this.override || this.presetName() !== 'lineup') return base;
+    const amt = Number(this.app.cfg?.cameraPush ?? 0.6);
+    return Number.isFinite(amt) && amt > 0 ? this.push.apply(base, amt) : base;
+  }
+
   /** C: next camera preset, logged as a cfg event (deterministic replay). */
   _bindKeys() {
     if (typeof window === 'undefined' || !window.addEventListener) return;
@@ -145,6 +165,7 @@ export class CameraRig {
     this.cams = new Map();
     this._seen = new WeakSet();
     this._since = new Map();          // riderId → take-off time of the current ride
+    this.push = new PushIn();         // lineup push-in toward the active break
     this.fake?.reset();
     this.pip = { active: false, riderId: null, rect: null, alpha: 0, startedAt: null, tiles: [] };
   }
@@ -187,6 +208,7 @@ export class CameraRig {
   step(t, dt = DT) {
     const app = this.app;
     this.fake?.step(t, dt, app.swell);
+    this.push.step(t, dt, app.swell?.fronts);
     const evs = [];
     for (const src of [app.riders?.events, this.fake?.events]) {
       if (!Array.isArray(src)) continue;
@@ -243,7 +265,7 @@ export class CameraRig {
     const pcfg = this.pipCfg();
     if (!this._warm) this._warmUp(app, buf, pcfg);
 
-    const p = widePose(t, this.preset(), this.drift, this._pose), cam = app.camera;
+    const p = widePose(t, this.widePreset(), this.drift, this._pose), cam = app.camera;
     cam.position.set(p.px, p.py, p.pz);
     cam.lookAt(p.tx, p.ty, p.tz);
     if (cam.fov !== p.fov) { cam.fov = p.fov; cam.updateProjectionMatrix(); }
@@ -320,11 +342,7 @@ export class CameraRig {
 
   _labelText(tile) {
     const rd = this.rider(tile.riderId);
-    const name = rd?.name ?? `rider ${tile.riderId}`;
-    if (!rd) return name;
-    let style = STATE_LABEL[rd.state] || '';
-    if (rd.state === 'RIDE') style = rd.tube ? STYLE_LABEL.tube : rd.style === 'tube' ? 'pulling in' : STYLE_LABEL[rd.style] || '';
-    else if (rd.state === 'TAKEOFF' && rd.tube) style = STYLE_LABEL.tube;
+    const name = rd?.name ?? `rider ${tile.riderId}`, style = riderLabel(rd);
     return style ? `${name} · ${style}` : name;
   }
 

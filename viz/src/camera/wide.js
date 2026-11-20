@@ -1,8 +1,10 @@
 // BlueCurl Swell — wide view presets (WP7, owner of the poses). Cycled with the C key, logged as cfg 'camera'
 // (app.input.setConfig('camera', name)) so replays reproduce it; the rig reads app.cfg.camera (default 'lineup').
-//   lineup  default: elevated above the headland, which frames the right side (cliff, sea stacks, palms); all three
-//           zones' break segments in frame (inside left, point centre ~128 m away, outer right under the sunrise),
-//           swell to the horizon, horizon ~25 % from the top. PiP bottom-left, over near water in the bay.
+//   lineup  default: high above the headland, whose cliff mound and sea stacks frame the lower right (land ≈ 15 %);
+//           all three zones' break segments in frame (inside left, point centre ~139 m away, outer right under the
+//           sunrise), swell to the horizon, horizon ~23 % from the top. PiP bottom-right: it covers no lineup (only the
+//           headland slope / stacks); bottom-left would cut the inside sandbar. Eases toward the active break
+//           (push.js, cfg.cameraPush).
 //   point   closer on the point (~111 m): big barrels, inside/outer partly past the edges. PiP bottom-right.
 //   cliff   WP2's SPOT_CAMERAS.default (src/spot/layout.js) from the high bluff. PiP bottom-right.
 // Drift: a very slow, sub-metre float, a pure function of t (no state).
@@ -10,7 +12,7 @@ import { SPOT_CAMERAS } from '../spot/layout.js';
 
 const S = SPOT_CAMERAS.default;
 export const PRESETS = {
-  lineup: { position: [0, 39.5, 60], target: [130, -15, -10], fov: 72, pipCorner: 'bottom-left' },
+  lineup: { position: [0, 55, 70], target: [130, -6, -10], fov: 72, pipCorner: 'bottom-right' },
   point: { position: [0, 30, 30], target: [130, -6, -35], fov: 66, pipCorner: 'bottom-right' },
   cliff: { position: [...S.pos], target: [...S.target], fov: S.fov, pipCorner: 'bottom-right' },
 };

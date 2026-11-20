@@ -1,7 +1,7 @@
 // WP7 camera: PiP trigger policy (pure) and follow-cam smoothing determinism.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DT } from '../src/contracts.js';
+import { DT, uToZ } from '../src/contracts.js';
 import { FixedClock } from '../src/core/clock.js';
 import { createPipState, pipStep, pipLayout, PIP_ANIM, PIP_DEFAULTS } from '../src/camera/pipPolicy.js';
 import { FollowCam, framing, distanceFor, FOLLOW, RIDER_HEIGHT } from '../src/camera/followCam.js';
@@ -243,4 +243,62 @@ test('camera presets: lineup is the default, C cycles lineup → point → cliff
     const p = PRESETS[n];
     assert.ok(p.position.length === 3 && p.target.length === 3 && p.fov > 30 && p.fov < 90 && /^(top|bottom)-(left|right)$/.test(p.pipCorner));
   }
+});
+
+// ------------------------------------------------------------------ lineup push-in
+import { PushIn, PUSH, breakUntil } from '../src/camera/push.js';
+const zbOf = (zi, tBreak, H, extra = {}) => ({ zi, tBreak, H, uPeak: 0.5, u0: 0.2, u1: 0.8, dir: -1, peelLen: 40, vPeel: 8, Tb: 2.5, closeout: false, ...extra });
+
+test('push-in: S-curve in from the commit, out after the peel; static when amount = 0; deterministic', () => {
+  const zb = zbOf(1, 5, 2.5), front = { id: 1, breaks: [] };
+  const run = (chunks) => {
+    const pi = new PushIn(), clock = new FixedClock(DT), w = [];
+    for (const c of chunks) clock.advance(c, (t, dt) => { if (t >= 2) front.breaks = [zb]; else front.breaks = []; pi.step(t, dt, [front]); w.push(pi.weight()); });
+    return { pi, w };
+  };
+  const { pi, w } = run([20]);
+  const at = (t) => w[Math.round(t / DT) - 1];
+  assert.equal(at(1.9), 0);
+  assert.ok(at(2 + PUSH.rampSec / 2) > 0.4 && at(2 + PUSH.rampSec / 2) < 0.6, 'half way through the ramp');
+  assert.equal(at(2 + PUSH.rampSec + 0.1), 1);
+  const until = breakUntil(zb);
+  assert.equal(at(until - 0.1), 1);
+  assert.ok(at(until + PUSH.rampSec / 2) > 0.3 && at(until + PUSH.rampSec / 2) < 0.7);
+  assert.equal(at(until + PUSH.rampSec + 0.1), 0);
+  for (let i = 1; i < w.length; i++) assert.ok(Math.abs(w[i] - w[i - 1]) < 2 * DT / PUSH.rampSec + 1e-9, 'no jumps');
+  assert.deepEqual(run(Array(80).fill(0.25)).w, w);
+  const base = { position: [0, 55, 70], target: [130, -6, -10], fov: 72 };
+  const fresh = run([2 + PUSH.rampSec + 1]).pi;
+  assert.equal(fresh.apply(base, 0), base);
+  const full = fresh.apply(base, 1);
+  assert.ok(full.fov < base.fov && Math.hypot(full.position[0] - 94, full.position[2] - uToZ(0.5)) < Math.hypot(-94, 70 - uToZ(0.5)), 'pushed toward the break');
+});
+
+test('push-in: never whips to another zone while pushed in; prefers the biggest break', () => {
+  const pi = new PushIn(), clock = new FixedClock(DT);
+  const fa = { id: 1, breaks: [] }, fb = { id: 2, breaks: [] };
+  const zones = [];
+  clock.advance(30, (t, dt) => {
+    fa.breaks = t >= 1 ? [zbOf(1, 4, 1.5)] : [];
+    fb.breaks = t >= 3 ? [zbOf(0, 6, 4.0)] : [];          // bigger, other zone, while pushed in on the point
+    pi.step(t, dt, [fa, fb]);
+    if (pi.focus) zones.push(pi.focus.zi);
+  });
+  const changes = zones.filter((z, i) => i && z !== zones[i - 1]).length;
+  assert.equal(zones[0], 1);
+  assert.ok(changes <= 1, 'one zone change at most');
+  // biggest first when both are active at the start
+  const p2 = new PushIn();
+  p2.step(1, DT, [{ id: 1, breaks: [zbOf(1, 4, 1.5)] }, { id: 2, breaks: [zbOf(2, 4, 3)] }]);
+  assert.equal(p2.focus.zi, 2);
+});
+
+test('labels per kind', async () => {
+  const { riderLabel } = await import('../src/camera/CameraRig.js');
+  assert.equal(riderLabel({ kind: 'surfer', state: 'RETURN' }), 'paddling back');
+  assert.equal(riderLabel({ kind: 'dolphin', state: 'RETURN' }), 'swimming back');
+  assert.equal(riderLabel({ kind: 'seal', state: 'KICKOUT' }), 'pulling off');
+  assert.equal(riderLabel({ kind: 'surfer', state: 'RIDE', style: 'tube', tube: true }), 'in the tube');
+  assert.equal(riderLabel({ kind: 'surfer', state: 'RIDE', style: 'tube', tube: false }), 'pulling in');
+  assert.equal(riderLabel({ kind: 'dolphin', state: 'RIDE', style: 'porpoise' }), 'porpoising');
 });

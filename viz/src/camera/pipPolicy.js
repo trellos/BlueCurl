@@ -25,7 +25,7 @@ export const PIP_ANIM = 0.3;              // s, slide in / out
 export const PIP_MARGIN = 0.022;          // margin to the screen edge, fraction of the screen HEIGHT
 export const PIP_GAP = 0.018;             // gap between stacked tiles, fraction of the screen height
 
-export const PIP_DEFAULTS = { enabled: true, onTakeoff: true, onBarrel: true, minHeight: 0.8, maxConcurrent: 1,
+export const PIP_DEFAULTS = { enabled: true, onTakeoff: true, onBarrel: true, minHeight: 0.3, maxConcurrent: 1,
   holdAfterRide: 1.5, size: 1 / 3, corner: 'bottom-right' };
 
 export function createPipState() { return { tiles: [], leaving: [], serial: 0 }; }

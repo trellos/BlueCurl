@@ -27,12 +27,17 @@ export const FOLLOW = {
   minClear: 1.5,        // m above the water surface under the camera
   sizeMin: 0.16,        // rider bounding height / tile height targeted (≥ 0.12 required)
   solveEvery: 6,        // steps between constraint solves (20 Hz at DT = 1/120)
+  aspect: 16 / 9,       // tile aspect (the margin rule needs the horizontal fov)
+  marginX: 0.6,         // the rider's centre stays within this fraction of the half-width …
+  marginY: 0.55,        // … and of the half-height (output-only correction of yaw / pitch)
 };
 
 /** Bounding height (m) of a rider for the size rule. */
 export const RIDER_HEIGHT = { surfer: 1.7, dolphin: 1.1, seal: 0.9 };
 /** Size-rule height of an animal swimming under the surface (the camera keeps a few metres and aims at the surface). */
-export const SUBMERGED_HEIGHT = 1.0;
+export const SUBMERGED_HEIGHT = 0.75;
+/** Extra elevation (deg) while an animal is under water: look down through the surface at where it swims. */
+export const SUBMERGED_EL = 10;
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const RAD = Math.PI / 180;
@@ -113,7 +118,7 @@ export class FollowCam {
     if (riding && (this.n % o.solveEvery === 0 || !this.init)) {
       let best = null;
       for (let i = 0; i <= 8; i++) {
-        const az = Math.min(88, f.az + 8 * i) * RAD, el = Math.min(40, f.el + 4 * i) * RAD;
+        const az = Math.min(88, f.az + 8 * i) * RAD, el = Math.min(45, f.el + SUBMERGED_EL * this.sub + 4 * i) * RAD;
         const ox = -d * Math.cos(el) * Math.sin(az), oz = this.sigma * d * Math.cos(el) * Math.cos(az);
         const cx = P.x + ox, cz = P.z + oz;
         let oy = d * Math.sin(el);
@@ -153,13 +158,28 @@ export class FollowCam {
     if (Number.isFinite(w)) cy = Math.max(cy, w + o.minClear);
 
     const dx = this.look.x - cx, dy = this.look.y - cy, dz = this.look.z - cz;
-    const yaw = Math.atan2(-dx, -dz);
+    let yaw = Math.atan2(-dx, -dz);
     const pitchT = Math.atan2(dy, Math.hypot(dx, dz));
     this.pitch += (pitchT - this.pitch) * k(o.tauPitch);
+    // margin: keep the rider's centre inside the safe box (turn the view, not the state, when it would crop)
+    let pitch = this.pitch;
+    {
+      const ry = (Number.isFinite(wr) ? Math.max(P.y, wr - 0.2) : P.y) + 0.45 * f.hR;
+      const rx = P.x - cx, rz = P.z - cz, rh = Math.hypot(rx, rz);
+      if (rh > 0.5) {
+        const vf = (this.fov * RAD) / 2, hf = Math.atan(Math.tan(vf) * o.aspect);
+        let dyaw = Math.atan2(-rx, -rz) - yaw;
+        dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+        const limY = o.marginX * hf;
+        if (Math.abs(dyaw) > limY) yaw += dyaw - Math.sign(dyaw) * limY;
+        const dp = Math.atan2(ry - cy, rh) - pitch, limP = o.marginY * vf;
+        if (Math.abs(dp) > limP) pitch += dp - Math.sign(dp) * limP;
+      }
+    }
     this.init = true;
 
     const out = this.out;
-    out.x = cx; out.y = cy; out.z = cz; out.yaw = yaw; out.pitch = this.pitch; out.roll = 0; out.fov = this.fov;
+    out.x = cx; out.y = cy; out.z = cz; out.yaw = yaw; out.pitch = pitch; out.roll = 0; out.fov = this.fov;
     return out;
   }
 
