@@ -27,8 +27,8 @@ const query = () => (typeof location !== 'undefined' ? new URLSearchParams(locat
 const STYLE_LABEL = { cruise: 'cruising', carve: 'carving', tube: 'in the tube', porpoise: 'porpoising', breach: 'breaching' };
 // state labels per kind (surfers paddle, animals swim)
 const STATE_LABEL = {
-  surfer: { TAKEOFF: 'take-off', KICKOUT: 'kick-out', CLOSEOUT: 'wipe-out', RETURN: 'paddling back', LINEUP: 'in the lineup', POSITION: 'paddling into position' },
-  animal: { TAKEOFF: 'catching the wave', KICKOUT: 'pulling off', CLOSEOUT: 'tumbling', RETURN: 'swimming back', LINEUP: 'cruising the lineup', POSITION: 'swimming into position' },
+  surfer: { TAKEOFF: 'take-off', KICKOUT: 'kick-out', CLOSEOUT: 'wipe-out', RETURN: 'paddling back', LINEUP: 'in the lineup', POSITION: 'paddling into position', ENTER: 'paddling out', LEAVE: 'heading in' },
+  animal: { TAKEOFF: 'catching the wave', KICKOUT: 'pulling off', CLOSEOUT: 'tumbling', RETURN: 'swimming back', LINEUP: 'cruising the lineup', POSITION: 'swimming into position', ENTER: 'swimming in', LEAVE: 'heading out to sea' },
 };
 export function riderLabel(rd) {
   if (!rd) return '';

@@ -6,7 +6,7 @@
 //   ride   3/4 from the shoulder: azimuth az from T toward S, elevation el; looks back past the rider down the
 //          line into the pocket so the curl and the lip are in shot.
 //   tube   from the channel / shoulder, nearly in line with the tube axis and low, looking into the barrel.
-//   animal (dolphin, seal) lower and closer.
+//   animal (dolphin, seal, turtle) lower and closer.
 // d comes from a minimum rider size: rider bounding height ≥ SIZE_MIN of the tile height at the tile's fov.
 // Constraints (desired pose, re-solved every SOLVE_EVERY steps): ≥ minClear above the water surface, shoreward
 // of the crest (never behind the wave relative to the rider), and an unobstructed camera → rider segment (no wave
@@ -33,7 +33,7 @@ export const FOLLOW = {
 };
 
 /** Bounding height (m) of a rider for the size rule. */
-export const RIDER_HEIGHT = { surfer: 1.7, dolphin: 1.1, seal: 0.9 };
+export const RIDER_HEIGHT = { surfer: 1.7, dolphin: 1.1, seal: 0.9, turtle: 0.7 };
 /** Size-rule height of an animal swimming under the surface (the camera keeps a few metres and aims at the surface). */
 export const SUBMERGED_HEIGHT = 0.75;
 /** Extra elevation (deg) while an animal is under water: look down through the surface at where it swims. */
@@ -45,7 +45,7 @@ const RAD = Math.PI / 180;
 /** Base framing: { az, el (deg), fov (deg), back (× d, look-at behind the rider), lookUp (m), hR (m) }. */
 export function framing(kind, style, H, sub = 0) {
   const g = clamp(Number.isFinite(H) ? H : 1.5, 0.6, 4);
-  const animal = kind === 'dolphin' || kind === 'seal';
+  const animal = kind === 'dolphin' || kind === 'seal' || kind === 'turtle';
   let hR = (RIDER_HEIGHT[kind] || 1.5) * (style === 'tube' ? 0.85 : 1);
   if (animal) hR += (SUBMERGED_HEIGHT - hR) * clamp(sub, 0, 1);
   if (style === 'tube') return { az: 26, el: 5, fov: 46 + 2 * g, back: 0.12, lookUp: 0.3 * g, hR };
