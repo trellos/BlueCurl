@@ -72,6 +72,10 @@ export const DEFAULT_CFG = {
   camera: 'lineup',        // wide presets: lineup | point | cliff (key C)
   cameraPush: 0.6,         // 0..1: how far the wide view eases toward an active break, then back (0 = static)
   hud: true,
+  // milestone 2 (guitar + beat + birds)
+  beat: { volume: 0.7, mute: false, maxLevel: 8, entryMeasures: 4 },   // audio volume/mute are output-only (no sim effect)
+  guitar: { key: 'C major' },  // display/log only: lane mapping happens before the input log (see GuitarMapper)
+  birds: { perNote: 1, flock: 16, max: 96 },
 };
 export const intervalSec = (cfg) => cfg.bars * 4 * 60 / cfg.bpm;
 
@@ -205,7 +209,9 @@ float bcAmbient(vec2 xz, float t) {
 
 // ---------------------------------------------------------------- riders (src/riders/*, WP6)
 /**
- * @typedef {'LINEUP'|'POSITION'|'TAKEOFF'|'RIDE'|'KICKOUT'|'CLOSEOUT'|'RETURN'} RiderStateName
+ * @typedef {'ASHORE'|'ENTER'|'LINEUP'|'POSITION'|'TAKEOFF'|'RIDE'|'KICKOUT'|'CLOSEOUT'|'RETURN'|'LEAVE'} RiderStateName
+ *   ASHORE = not in the water (RiderViews hides it); ENTER = swimming/paddling out to the lineup; LEAVE = heading out
+ *   of the scene (surfers to the beach, animals out to sea), becomes ASHORE when it gets there.
  * @typedef {Object} RiderState
  * @property {number} id  @property {'surfer'|'dolphin'|'seal'} kind  @property {string} name
  * @property {RiderStateName} state
@@ -216,8 +222,18 @@ float bcAmbient(vec2 xz, float t) {
  * @property {number} actionT  0..1 progress of the action
  * @property {{x:number,y:number,z:number}} pos  @property {{x:number,y:number,z:number}} fwd  @property {{x:number,y:number,z:number}} up
  * @property {number} speed  @property {number|null} frontId  @property {number} zi  @property {number} u  @property {number} sigma
- * Riders: constructor(cfg) · reset() · step(t, dt, swell) · riders: RiderState[]
+ * Riders: constructor(cfg) · reset() · step(t, dt, swell, beat) · riders: RiderState[]
  *   · events: RideEvent[] (ring) RideEvent { t, type:'takeoff'|'barrel'|'rideEnd', riderId, frontId, zi, outcome?:'kickout'|'closeout' }
+ *
+ * Presence (milestone 2): the number of riders in the water follows the beat. Wanted count = beat.level (1..8);
+ * riders join in ENTRY_ORDER and leave last-in-first-out. At t = 0 (level 1) ENTRY_ORDER[0] is already in the lineup.
+ * A joining rider leaves ASHORE at the downbeat the level rose and reaches the lineup exactly cfg.beat.entryMeasures
+ * measures later (measure length at that time). A leaving rider finishes any ride first, then takes the same time
+ * to get out. A rider still ENTERing when asked to leave turns round.
+ * Extra RiderState fields: present:boolean (false only when ASHORE), enterT, arriveT (planned lineup arrival).
+ * Extra RideEvent types: 'enter' | 'arrive' | 'leave' | 'gone' | 'flock'.
+ *   'flock' { t, riderId, pos:{x,y,z} }: the beat level changed (up or down) on the very downbeat this rider
+ *   arrived at the lineup (arrival measure index = enter measure index + entryMeasures) → Fx releases a bird flock.
  */
 export const RIDERS = [
   { id: 0, kind: 'surfer',  name: 'Kai',   color: 0xff4d2e, zones: ['outer', 'point'] },
@@ -226,7 +242,59 @@ export const RIDERS = [
   { id: 3, kind: 'dolphin', name: 'Echo',  color: 0x7d97ad, zones: ['inside', 'point'] },
   { id: 4, kind: 'seal',    name: 'Pudge', color: 0x4a3b30, zones: ['inside'] },
   { id: 5, kind: 'seal',    name: 'Gus',   color: 0x5a4a3c, zones: ['inside', 'point'] },
+  { id: 6, kind: 'surfer',  name: 'Noa',   color: 0x2ee6c8, zones: ['inside', 'point'] },
+  { id: 7, kind: 'turtle',  name: 'Honu',  color: 0x6b7a3a, zones: ['inside', 'point'] },
 ];
+/** Order riders join the water as the beat level rises (level N → the first N of these are in). */
+export const ENTRY_ORDER = [0, 2, 4, 1, 7, 3, 5, 6];
+
+// ---------------------------------------------------------------- guitar input (src/input/guitar*.js, WP10)
+/**
+ * Lanes 1..8 = one octave of the current key's scale: 1 = low tonic, 2..7 = scale degrees, 8 = high tonic.
+ * GuitarMapper (pure, no DOM; src/input/guitarMap.js):
+ *   new GuitarMapper({ tonicPc = 0, mode = 'major', lowRoot = GUITAR.initialLowRoot })
+ *   .note(midi) → lane 1..8 | null   (null: not in the key — does nothing). Updates the octave (lowRoot) per the rules.
+ *   .chord(midis[], { root?: pc, quality? }) → { keyChanged: boolean, lanes: number[] }
+ *   .state → { tonicPc, mode, lowRoot, name: 'C major' }
+ * Octave rules: lowRoot is a MIDI number with pitch class tonicPc; the octave is lowRoot..lowRoot+12.
+ *   - tonic == lowRoot → lane 1; tonic == lowRoot+12 → lane 8; tonic above lowRoot+12 → lowRoot = midi−12, lane 8;
+ *     tonic below lowRoot → lowRoot = midi, lane 1.
+ *   - non-tonic diatonic note → lowRoot = the tonic at or below it (octave containing the note); lane = degree+1.
+ * Key change: a chord of ≥ 3 detected pitches (voices; the same pitch class in two octaves counts twice) whose pitch
+ *   classes are not all in the current key → the key becomes the chord's root + mode (major chord → major key, minor
+ *   chord → natural minor; other/unknown quality → keep the current mode). lowRoot = the new tonic at or below the
+ *   chord's lowest note. Diatonic chords never change the key (C major: C → Cm switches, C → Dm does not).
+ * GuitarInput (src/input/guitar.js): new GuitarInput(app, { recognizer? }) wraps tuninator's createRecognizer, maps
+ *   Notes to app.input.impulse / release, logs key changes as cfg 'guitar.key' ('C minor'). start() needs a user gesture.
+ *   app.guitar.status = { state:'off'|'starting'|'listening'|'error', message, key, lowRoot, last:{ name, lane, t } }
+ */
+export const GUITAR = { initialLowRoot: 48 /* C3 = low E fret 8 */, lowestMidi: 40 /* E2 */ };
+export const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10] };
+
+// ---------------------------------------------------------------- beat (src/beat/*, WP11)
+/**
+ * 4/4 bar clock at cfg.bpm; a bpm change applies from the next downbeat (the bar in progress keeps its length).
+ * Beat (pure sim, src/beat/beat.js): constructor(cfg) · reset() · step(t, dt, events)
+ *   .measure (index of the current measure, 0 at t = 0) · .measureT0 · .measureLen (s) · .beatLen (s)
+ *   .notes (count of 'on' events in the current measure so far) · .level (1..8, current measure) · .target
+ *   .measures: completed { index, t0, t1, notes, target, level } (ring) · .events: BeatEvent[] (ring)
+ *   BeatEvent { t, type:'downbeat', index, level, prevLevel, change: -1|0|1 }
+ *   barPhase(t) → { measure, beat (0..3), frac } for t within the current/next measure (audio + fx)
+ * Level rule: level starts at 1. At each downbeat: target = clamp(notes in the measure that just ended, 1, 8);
+ *   level += sign(target − level)  (one step per measure at most).
+ * BeatAudio (src/beat/BeatAudio.js): Web Audio synth (surf/tropical groove, 8 patterns, level 1 = metronome with an
+ *   accented 1). Output only — never feeds the sim. Scheduled from sim time with a constant latency; silent while
+ *   paused and in capture mode.
+ * Step order: input → swell → beat → riders(swell, beat) → fx → camera.
+ */
+
+// ---------------------------------------------------------------- note splash + birds (src/fx/*, WP12)
+/**
+ * Every 'on' impulse (ImpulseFx) → a massive splash where it lands + cfg.birds.perNote bird that bursts out of the
+ * splash, circles above the lineup for a while (~6–10 s) and then flies away up into the dawn sky ("the note
+ * escaping Galatea"). Every riders 'flock' event → cfg.birds.flock birds burst from that rider. All analytic in
+ * (t − t0, seed): pure functions of state and t, instanced, capped at cfg.birds.max (oldest culled first).
+ */
 
 // ---------------------------------------------------------------- app / systems (src/core/App.js, WP1)
 /**
