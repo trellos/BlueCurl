@@ -55,6 +55,7 @@ void main() {
 }`;
 
 const FRAG = /* glsl */ `
+uniform float uGain;   // day cycle: 1 / post exposure
 in vec2 vQ;
 in vec4 vC;
 flat in int vShape;

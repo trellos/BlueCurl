@@ -79,7 +79,7 @@ export const DEFAULT_CFG = {
   birds: { perNote: 1, flock: 16, max: 96 },
   // milestone 3 (day cycle + key flock + fish)
   day: { measures: 64, startPhase: 0.06, speed: 1 },   // one sunrise→sunset cycle per 64 measures; startPhase ≈ today's dawn look
-  keyFlock: { birds: 72, seconds: 6 },                 // key-change flock spelling the key ('E', 'Cm', 'F#m', 'Bb')
+  keyFlock: { birds: 110, seconds: 6 },                 // key-change flock spelling the key ('E', 'Cm', 'F#m', 'Bb')
   fish: { beats: 4 },                                  // a fish swims this many beats in the shallows, then fades into deep water
 };
 export const intervalSec = (cfg) => cfg.bars * 4 * 60 / cfg.bpm;
