@@ -46,3 +46,11 @@ Orchestrator: contracts, App/main wiring, demo-guitar script, docs, integration 
 ### Status after milestone 2 (2026-11-20)
 All M2 packages + one review/fix round landed (shader prewarm, entry speeds, splash placement, PiP on enter/flock). 166/166 tests.
 Known / next: real guitar + mic untested (mock, recorded Tuninator streams and the harness pass); beat audio unheard by us (patterns verified by hit counts); the beat can bleed into a guitar mic (use headphones/DI); surfers fade in on the water ~22 m from their spot (shore too far for 4 measures); a dolphin entering is mostly under water in its PiP; swell set grid vs beat bar clock can drift apart after a live bpm change; boot now spends ~4 s compiling every shader up front.
+
+## Milestone 3 — day cycle, key flock, beat fish (2026-11-20)
+| WP | Package | Status |
+|---|---|---|
+| 14 | Day cycle: sun path, colours, shadows, envMap, fx/water/terrain/riders follow app.sun | done (9a10de1) |
+| 15 | Key-letter flock + beat fish; fx follow the day; fx resume fix | done (1bf4b21, + 8e7bbbf shader fix) |
+Also: a chord counts as one beat note (22cbba0); guitar asked for by default + number-key pluck synth (3fad5fd).
+Known / next: key letters are thin and small (legible for 1–2 glyphs, 3-glyph keys while forming are harder); water does not receive shadows; fish are fantasy-sized (8 m) to read in the wide view.

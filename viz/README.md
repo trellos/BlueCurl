@@ -55,6 +55,13 @@ Captures are resumable (they restart from the first unfinished segment) and byte
 - `south-peak-t66.jpg`, `closeout-t82.jpg`: the one-sided set and the erratic close-out set.
 - `demo-basic-720p.mp4`: the full scripted demo (92 s). The 1080p original is produced by the capture command above.
 
+### Day, key flock, fish
+The sun rises in front of the lineup and sets behind the camera once every 64 measures (128 s at 120 bpm; it follows the tempo), then comes back up through the same twilight. When the guitar changes key, a flock of birds flies across the sky spelling it ('E', 'Cm', 'F#m'). Each step up of the beat sends a fish swimming right through the shallows under the headland, each step down one swimming left; after 4 beats they head into deeper water.
+
+## Milestone 3 media
+- `m3-day-cycle-720p.mp4`: demo-beat over one full day (130 s, silent). `m3-day-cycle-sheet.jpg`: sunrise, noon, afternoon, twilight from it.
+- `m3-key-flock-E.jpg`: the key changed to E major. `m3-fish-t4.jpg`: two fish under the water in the shallows (beat rising).
+
 ## Milestone 2 media
 - `m2-note-splash-t15.jpg`: one note → a splash erupting in the lineup, its bird climbing out.
 - `m2-rider-entering-t5.jpg`: the beat rose, Pudge swims in (PiP).
