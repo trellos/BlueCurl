@@ -49,8 +49,8 @@ export const PATH = [
   { x: 600, t: -14 },   // horizon spawn (fade in over first 2 s)
   { x: 180, t: -5.5 },  // outer reef line
   { x: 100, t: 0 },     // point line  (tPoint lands on the beat grid)
-  { x: 33,  t: 10 },    // inside line
-  { x: 0,   t: 15 },    // shore (fade out, front dies)
+  { x: 33,  t: 13 },    // inside line (slower crest in the bay → longer point peels / rides; review round 1)
+  { x: 0,   t: 19 },    // shore (fade out, front dies)
 ];
 
 // ---------------------------------------------------------------- runtime config (tunable, logged)
