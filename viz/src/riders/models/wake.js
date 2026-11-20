@@ -10,6 +10,7 @@ export const WAKE_N = 32;           // ribbon stations
 export const WAKE_T = 2.4;          // s of path shown
 export const SPRAY_N = 128;          // particles per rider
 export const SPRAY_LIFE = 0.75;     // s
+const SURF_K = 4;                    // surface samples along the path
 
 const WAKE_VERT = /* glsl */ `
 attribute vec4 aW;                 // x: across (-1..1), y: age01, z: dist along (m), w: alpha
@@ -125,10 +126,28 @@ export class Wake {
   update(t, trail, o) {
     const n = WAKE_N;
     const P = this.ribbon.geometry.attributes.position.array, W = this.ribbon.geometry.attributes.aW.array;
+    // height of the path above the *current* sea surface, sampled at a few ages (surfaceHeight is costly) and
+    // interpolated: foam stays on the water even where the path ran over a face that has moved on, through a
+    // leap, or below the surface (swimming animals)
+    const off = this._off || (this._off = new Float64Array(SURF_K));   // surface height at SURF_K ages
+    const wantSurf = o.surface && (o.wake > 0.01 || o.spray > 0.01 || o.burst > 0.01);
+    for (let k = 0; k < SURF_K; k++) {
+      off[k] = 0;
+      if (!wantSurf) continue;
+      trail((k / (SURF_K - 1)) * WAKE_T, _p);
+      const ws = o.surface(_p.x, _p.z);
+      off[k] = Number.isFinite(ws) ? ws : _p.y;
+    }
+    // sea surface along the path (by age), and how far the path itself was from it (leap / dive → no foam there)
+    const surfAt = (age, y) => {
+      if (!wantSurf) return y;
+      const f = Math.min(age / WAKE_T, 1) * (SURF_K - 1), i = Math.min(Math.floor(f), SURF_K - 2), w = f - i;
+      return off[i] + (off[i + 1] - off[i]) * w;
+    };
     let dist = 0;
     this.ribbon.visible = o.wake > 0.01;
     if (this.ribbon.visible) {
-      let px = 0, py = 0, pz = 0;
+      let px = 0, py = 0, pz = 0, cut = false;
       for (let i = 0; i < n; i++) {
         const age = (i / (n - 1)) * WAKE_T;
         trail(age, _p);
@@ -138,14 +157,23 @@ export class Wake {
         if (_d.lengthSq() < 1e-8) _d.copy(o.fwd).setY(0);
         _d.normalize();
         _s.set(-_d.z, 0, _d.x);                              // horizontal side vector
-        if (i > 0) dist += Math.hypot(_p.x - px, _p.y - py, _p.z - pz);
+        // foam stays on the water: every station sits on the *current* sea surface (the path may have run over a
+        // face that has since moved on, through a leap, or below the surface for a swimming animal)
+        const sy = surfAt(age, _p.y), away = Math.abs(_p.y - sy);
+        _p.y = sy;
+        if (i > 0) {
+          const seg = Math.hypot(_p.x - px, _p.z - pz);
+          if (!(seg < 6) || !Number.isFinite(_p.y)) cut = true;      // teleport / invalid sample: end the ribbon
+          dist += seg;
+        }
+        if (cut) { _p.set(px, py, pz); }
         px = _p.x; py = _p.y; pz = _p.z;
         const a01 = age / WAKE_T;
         const w = o.width * o.scale * (0.5 + 1.8 * Math.sqrt(a01));
         for (let k = 0; k < 2; k++) {
           const sd = k === 0 ? -1 : 1, j = 2 * i + k;
           P[3 * j] = _p.x + _s.x * w * sd; P[3 * j + 1] = _p.y + 0.04; P[3 * j + 2] = _p.z + _s.z * w * sd;
-          W[4 * j] = sd; W[4 * j + 1] = a01; W[4 * j + 2] = dist; W[4 * j + 3] = o.wake * smooth01(i / 2);
+          W[4 * j] = sd; W[4 * j + 1] = a01; W[4 * j + 2] = dist; W[4 * j + 3] = cut ? 0 : o.wake * smooth01(i / 2) * (1 - smooth01((away - 0.6) / 0.8));
         }
       }
       this.ribbon.geometry.attributes.position.needsUpdate = true;
@@ -162,6 +190,7 @@ export class Wake {
       const age = t + off - cyc * SPRAY_LIFE;
       const h1 = hash01(this.id + 17, j, cyc), h2 = hash01(this.id + 31, j, cyc), h3 = hash01(this.id + 53, j, cyc), h4 = hash01(this.id + 71, j, cyc);
       trail(age, _p);
+      { const sy = surfAt(age, _p.y); if (_p.y < sy + 0.3) _p.y = sy; }
       const sc = o.scale;
       const burst = h4 < o.burst ? 1 : 0;
       // emitter: off the tail (spray) or around the rider (burst)

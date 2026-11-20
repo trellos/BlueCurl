@@ -104,6 +104,8 @@ export class RiderViews {
     this.models = new Map();      // id → { kind, model, wake }
     for (const def of RIDERS) this._ensure(def);
     this._frame = new THREE.Matrix4();
+    // debug: ?riderwake=0 hides wakes and spray (isolates them in app stills)
+    this._noWake = typeof location !== 'undefined' && new URLSearchParams(location.search).get('riderwake') === '0';
   }
 
   _ensure(r) {
@@ -150,6 +152,10 @@ export class RiderViews {
    * trajectory; otherwise the body centre goes to min(pos.y, surface − pose depth), so the sim's depth wins when it
    * is deeper and the pose's waterline (dorsal fin / head out) applies at the surface.
    */
+  _surfaceAt(x, z) {
+    try { return surfaceHeight(this.app.swell?.fronts || [], x, z, this._tNow); } catch { return NaN; }
+  }
+
   _surface(r, t) {
     let w = r.pos.y;
     try { w = surfaceHeight(this.app.swell?.fronts || [], r.pos.x, r.pos.z, t); } catch { /* keep pos.y */ }
@@ -194,8 +200,11 @@ export class RiderViews {
       const goofy = e.kind === 'surfer' && e.model.look?.goofy;
       const wp = wakeParams(e.kind, r, a, goofy, t);
       wp.scale = scale;
+      wp.surface = this._surfFn || (this._surfFn = (x, z) => this._surfaceAt(x, z));
+      this._tNow = t;
       wp.fwd = _x.set(r.fwd?.x ?? 1, 0, r.fwd?.z ?? 0).normalize().clone();
       wp.right = new THREE.Vector3(-wp.fwd.z, 0, wp.fwd.x);
+      if (this._noWake) { e.wake.ribbon.visible = e.wake.spray.visible = false; continue; }
       e.wake.update(t, this._trail(r), wp);
     }
     for (const [id, e] of this.models) {
