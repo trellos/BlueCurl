@@ -2,7 +2,7 @@
 // Resume / determinism test for tools/capture.mjs (WP8). Browser + GPU based, not part of `npm test`.
 //
 //   node test/capture-resume.mjs [--frames 40] [--from 15] [--fps 30] [--angle vulkan] [--port 5189]
-//                                [--skip-extra]
+//                                [--skip-extra] [--segments-only] [--keep]
 //
 // One frozen app snapshot (captures/wp8-resume/build) is shared by every run:
 //   A  uninterrupted capture of N frames
@@ -14,13 +14,20 @@
 // and every frame of B..E is compared with A (byte-identical PNG, else decoded max channel diff).
 // Chunking: three fresh pages step N frames at 24 fps with exact 1/24 s, with 0.041667 s from frame N/2 on,
 // and with every frame split into two __advance calls (0.02 + rest); frame pixels (SHA-256 of readPixels)
-// and __simTime are compared. Writes captures/wp8-resume/report.json; exit code 1 on any mismatch.
+// and __simTime are compared.
+// Segments (--video, 16-frame segments, stills 3,20): SA uninterrupted; SB CLI killed mid-segment (after
+// frame 21) then resumed; SC browser crash mid-segment (in-process). The final NAME.mp4 of SB / SC must
+// decode to the same frames as SA (ffmpeg framemd5), with N frames.
+// Prints the report (also captures/wp8-resume/report.json with --keep); all test captures are deleted unless
+// --keep. Exit code 1 on any mismatch.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { capture, CAPTURES } from '../tools/capture.mjs';
 import { VIZ, argParser, resolveDemo, buildSnapshot, startStaticServer, launchBrowser, appUrl, openApp } from '../tools/lib/browser.mjs';
 import { comparePng } from '../tools/lib/pngdiff.mjs';
+import { FFMPEG } from '../tools/lib/browser.mjs';
+import { execFileSync } from 'node:child_process';
 
 const { has, opt } = argParser();
 const N = +opt('frames', 40), FROM = +opt('from', 15), FPS = +opt('fps', 30), ANGLE = opt('angle', 'vulkan'), PORT = +opt('port', 5189);
@@ -41,6 +48,9 @@ const quiet = (name) => (m) => { if (!/^\s+frame /.test(m)) log(`[${name}] ${m}`
 const summary = (m) => ({ sessions: m.sessions.map((s) => ({ start: s.startFrame, frames: s.frames, end: s.end, error: s.error, fps: s.fps })),
   fps: m.timings?.framesPerSec, driftMax: m.drift.maxAbs, renderer: m.renderer });
 
+let ok = true;
+const FRAMES = !has('segments-only');
+if (FRAMES) {
 // ---------------------------------------------------------------- A, B (in-process)
 const runs = [['A', {}], ['B', { fault: `browser@${KILL_AT}` }]];
 if (!has('skip-extra')) runs.push(['D', { fault: 'gpu@9' }], ['E', { restartEvery: 12 }], ['F', { fault: 'renderer@20' }], ['G', { fault: 'ctxlost@25' }]);
@@ -65,7 +75,6 @@ for (const [id, extra] of runs) {
 }
 
 // ---------------------------------------------------------------- compare with A
-let ok = true;
 for (const id of Object.keys(report.runs).filter((x) => x !== 'A')) {
   const res = { identical: 0, differ: [], maxDiff: 0 };
   for (let k = 0; k < N; k++) {
@@ -123,9 +132,48 @@ for (const id of Object.keys(report.runs).filter((x) => x !== 'A')) {
     log(`chunking ${m}: ${c.sameFrames}/${N} frames identical to exact 1/24 stepping, max |simTime diff| ${c.maxSimTimeDiff}`);
   }
 }
+}
+
+// ---------------------------------------------------------------- segments (streamed video)
+{
+  const SEGN = 16, KILL = 21, segBase = { ...base, video: true, segment: SEGN, stills: [3, 20] };
+  const md5s = (name) => execFileSync(FFMPEG, ['-v', 'error', '-i', path.join(CAPTURES, name, name + '.mp4'), '-f', 'framemd5', '-'], { encoding: 'utf8' })
+    .split('\n').filter((l) => l && !l.startsWith('#')).map((l) => l.split(',').pop().trim());
+  const mA = await capture({ ...segBase, name: 'wp8-resume-SA', log: quiet('SA') });
+  report.runs.SA = summary(mA);
+  const mC = await capture({ ...segBase, name: 'wp8-resume-SC', fault: `browser@${KILL}`, log: quiet('SC') });
+  report.runs.SC = summary(mC);
+  const cli = (extra) => spawnSync(process.execPath, [path.join(VIZ, 'tools', 'capture.mjs'), '--name', 'wp8-resume-SB', '--demo', DEMO,
+    '--from', String(FROM), '--frames', String(N), '--fps', String(FPS), '--port', String(PORT), '--build', snap, '--angle', ANGLE,
+    '--video', '--segment', String(SEGN), '--stills', '3,20', ...extra], { cwd: VIZ, encoding: 'utf8' });
+  const r1 = cli(['--fresh', '--fault', `exit@${KILL}`]);
+  const segDir = path.join(CAPTURES, 'wp8-resume-SB', 'seg');
+  const afterKill = fs.readdirSync(segDir);
+  const r2 = cli([]);
+  if (r2.status !== 0) log(r2.stdout + r2.stderr);
+  const mB = JSON.parse(fs.readFileSync(path.join(CAPTURES, 'wp8-resume-SB', 'manifest.json'), 'utf8'));
+  report.runs.SB = { killExit: r1.status, segFilesAfterKill: afterKill, resumeExit: r2.status, ...summary(mB) };
+  log(`[SB] killed with exit ${r1.status} (seg/: ${afterKill.join(' ')}), resumed with exit ${r2.status}`);
+  const a = md5s('wp8-resume-SA');
+  if (a.length !== N) { ok = false; log(`SA: ${a.length} decoded frames, expected ${N}`); }
+  for (const id of ['SB', 'SC']) {
+    const b = md5s(`wp8-resume-${id}`);
+    const differ = a.map((x, k) => (x !== b[k] ? k : -1)).filter((k) => k >= 0);
+    const stills = [3, 20].every((k) => fs.readFileSync(path.join(CAPTURES, 'wp8-resume-SA', 'stills', String(k).padStart(5, '0') + '.png'))
+      .equals(fs.readFileSync(path.join(CAPTURES, `wp8-resume-${id}`, 'stills', String(k).padStart(5, '0') + '.png'))));
+    if (differ.length || b.length !== a.length || !stills) ok = false;
+    report.compare[`SA-${id}`] = { frames: b.length, differ, stillsIdentical: stills };
+    log(`SA vs ${id} (mp4 framemd5): ${a.length - differ.length}/${a.length} decoded frames identical (${b.length} frames), stills identical: ${stills}`);
+  }
+  const pngs = ['SA', 'SB', 'SC'].some((id) => fs.existsSync(path.join(CAPTURES, `wp8-resume-${id}`, 'frames')));
+  if (pngs) { ok = false; log('segment mode left a frames/ directory'); }
+}
 
 report.ok = ok;
 report.wallMs = Date.now() - t0;
-fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
-log(`${ok ? 'PASS' : 'FAIL'} (${(report.wallMs / 1000).toFixed(1)} s) — ${path.join(out, 'report.json')}`);
+if (has('keep')) fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
+else {                                     // clean up every capture this test made
+  for (const d of fs.readdirSync(CAPTURES)) if (/^wp8-resume(-[A-Z]+)?$/.test(d)) fs.rmSync(path.join(CAPTURES, d), { recursive: true, force: true });
+}
+log(`${ok ? 'PASS' : 'FAIL'} (${(report.wallMs / 1000).toFixed(1)} s)${has('keep') ? ' — ' + path.join(out, 'report.json') : ' (test captures deleted; --keep to keep them)'}`);
 process.exit(ok ? 0 : 1);

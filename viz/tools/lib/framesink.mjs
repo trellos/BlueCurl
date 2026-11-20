@@ -2,39 +2,47 @@
 // thread + ≈25 ms base64 transfer over CDP per 1280×720 frame), the page reads the default framebuffer
 // with gl.readPixels (≈3 ms), hands the buffer to a pool of Web Workers that flip it, PNG-encode it on an
 // OffscreenCanvas (software 2D, opaque pixels → lossless) and POST the bytes to the capture's own static
-// server (/__upload/frame/<k>). The capture loop keeps rendering while frames are encoded and uploaded,
+// server (/__upload/frame/<k>; with fmt 'raw' the flipped RGBA bytes are posted instead, for the segment
+// video writer; frames listed in stills are also posted as PNG to /__upload/still/<k>). The capture loop keeps rendering while frames are encoded and uploaded,
 // bounded by an in-flight limit.
 //
 // Page API (installed by installFrameSink): window.__wp8sink = { send(k) → pending, wait(n) → Promise, pending, errors }
 const WORKER_SRC = `
+const post = async (url, body) => {
+  for (let attempt = 0; ; attempt++) {          // a reused keep-alive socket can be reset: retry (idempotent)
+    try {
+      const r = await fetch(url, { method: 'POST', body });
+      if (!r.ok) throw new Error('upload HTTP ' + r.status + ' ' + (await r.text()));
+      return;
+    } catch (e) {
+      if (attempt >= 4) throw e;
+      await new Promise((res) => setTimeout(res, 50 * (attempt + 1)));
+    }
+  }
+};
+const png = (out, w, h) => {
+  const c = new OffscreenCanvas(w, h);
+  c.getContext('2d', { willReadFrequently: true, alpha: false }).putImageData(new ImageData(out, w, h), 0, 0);
+  return c.convertToBlob({ type: 'image/png' });
+};
 onmessage = async (ev) => {
-  const { k, w, h, buf, url } = ev.data;
+  const { k, w, h, buf, url, fmt, still } = ev.data;
   try {
     const src = new Uint8ClampedArray(buf), out = new Uint8ClampedArray(w * h * 4), row = w * 4;
     for (let y = 0; y < h; y++) out.set(src.subarray((h - 1 - y) * row, (h - y) * row), y * row);
     for (let i = 3; i < out.length; i += 4) out[i] = 255;
-    const c = new OffscreenCanvas(w, h);
-    c.getContext('2d', { willReadFrequently: true, alpha: false }).putImageData(new ImageData(out, w, h), 0, 0);
-    const blob = await c.convertToBlob({ type: 'image/png' });
-    for (let attempt = 0; ; attempt++) {          // a reused keep-alive socket can be reset: retry (idempotent)
-      try {
-        const r = await fetch(url + k, { method: 'POST', body: blob });
-        if (!r.ok) throw new Error('upload HTTP ' + r.status + ' ' + (await r.text()));
-        break;
-      } catch (e) {
-        if (attempt >= 4) throw e;
-        await new Promise((res) => setTimeout(res, 50 * (attempt + 1)));
-      }
-    }
-    postMessage({ k, ok: true, bytes: blob.size });
+    if (still) await post(url + 'still/' + k, await png(out, w, h));
+    await post(url + 'frame/' + k, fmt === 'raw' ? new Blob([out]) : await png(out, w, h));   // Blob: an ArrayBuffer body uploads ~7x slower
+    postMessage({ k, ok: true });
   } catch (e) { postMessage({ k, ok: false, error: String(e && e.message || e) }); }
 };`;
 
 /** Install the worker pool in the page. */
 // Workers are replaced after `recycle` frames: the PNG blobs they create are only freed with their context,
 // and once a page has produced ≈500 MB of blobs Chrome's blob storage refuses more ("Failed to fetch").
-export async function installFrameSink(page, { workers = 4, recycle = 32 } = {}) {
-  await page.evaluate(({ src, workers, recycle }) => {
+export async function installFrameSink(page, { workers = 4, fmt = 'png', recycle = fmt === 'raw' ? 8 : 32, stills = [] } = {}) {
+  await page.evaluate(({ src, workers, recycle, fmt, stills }) => {
+    const stillSet = new Set(stills);
     const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
     const sink = { pending: 0, errors: [], done: 0, waiters: [], next: 0, recycled: 0 };
     const settle = () => {
@@ -72,10 +80,10 @@ export async function installFrameSink(page, { workers = 4, recycle = 32 } = {})
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, prevRead);
       if (prevPack) gl.bindBuffer(gl.PIXEL_PACK_BUFFER, prevPack);
       if (gl.isContextLost()) return -1;
-      dispatch({ k, w, h, buf: buf.buffer, url: location.origin + '/__upload/frame/' }, [buf.buffer]);
+      dispatch({ k, w, h, buf: buf.buffer, url: location.origin + '/__upload/', fmt, still: stillSet.has(k) }, [buf.buffer]);
       return sink.pending;
     };
     sink.wait = (n = 0) => new Promise((resolve, reject) => { sink.waiters.push({ n, resolve, reject }); settle(); });
     window.__wp8sink = sink;
-  }, { src: WORKER_SRC, workers, recycle });
+  }, { src: WORKER_SRC, workers, recycle, fmt, stills });
 }

@@ -2,7 +2,8 @@
 // Deterministic, resumable frame capture + video (WP8).
 //
 //   node tools/capture.mjs --name NAME [--demo demo/demo-basic.json] --from 0 (--to 75 | --frames N) --fps 30
-//        [--w 1280 --h 720] [--port 5188] [--query k=v&k2=v2] [--video] [--crf 20] [--preroll 0]
+//        [--w 1280 --h 720] [--port 5188] [--query k=v&k2=v2] [--video [--segment 300] [--keep-frames]]
+//        [--crf 18] [--stills 16,33,40] [--preroll 0]
 //        [--restart-every 600] [--angle vulkan] [--headed] [--dev | --build DIR] [--fresh] [--retries 5]
 //        [--grab] [--workers 4] [--inflight 8] [--frame-timeout 60]
 //        [--fault browser|renderer|gpu|ctxlost|exit@K]   (test only: inject a failure after frame K)
@@ -11,8 +12,13 @@
 // (tools/lib/framesink.mjs); --grab (and --dev) use window.__grab() (canvas.toDataURL) instead, ~3× slower.
 //
 // Frame k (0-based, k < N, N = round((to - from) * fps), i.e. `to` is exclusive) is the state at sim time
-// T_k = from + k / fps. Output: captures/NAME/frames/%05d.png, captures/NAME/manifest.json and, with
-// --video, captures/NAME/NAME.mp4 (libx264, yuv420p).
+// T_k = from + k / fps. Output: captures/NAME/manifest.json and
+//   --video (disk-light, default): raw frames stream into x264 (crf 18, yuv420p) in resumable segments of
+//     --segment frames → captures/NAME/seg/%04d.mp4 (each starts on a keyframe; a manifest entry per finished
+//     segment), concatenated at the end (concat demuxer, -c copy) into captures/NAME/NAME.mp4. No PNG frames.
+//     Resume restarts at the first unfinished segment (its partial file is discarded).
+//   no --video, or --video --keep-frames: captures/NAME/frames/%05d.png (+ NAME.mp4 encoded from them).
+//   --stills k1,k2: those frames also as captures/NAME/stills/%05d.png.
 //
 // Source: by default the app is built once (vite build) into captures/NAME/build together with a copy of
 // the demo log and served statically, so a long or resumed capture keeps rendering the same code while
@@ -42,6 +48,7 @@ import {
   copyIntoSnapshot, startStaticServer, launchBrowser, appUrl, rendererString, withTimeout, openApp,
 } from './lib/browser.mjs';
 import { installFrameSink } from './lib/framesink.mjs';
+import { SegmentWriter, segFile, concatSegments } from './lib/segments.mjs';
 
 export const CAPTURES = path.join(VIZ, 'captures');
 const pad = (k) => String(k).padStart(5, '0');
@@ -68,7 +75,7 @@ const PNG_OK = (s) => typeof s === 'string' && s.startsWith('data:image/png;base
  */
 export async function capture(opts) {
   const o = {
-    from: 0, fps: 30, w: 1280, h: 720, port: 5188, query: '', video: false, crf: 20, preroll: 0,
+    from: 0, fps: 30, w: 1280, h: 720, port: 5188, query: '', video: false, crf: 18, preroll: 0, keepFrames: false, segment: 300, stills: [],
     restartEvery: 600, angle: 'vulkan', headed: false, dev: false, build: null, fresh: false, retries: 5,
     frameTimeout: 60000, fault: null, rollback: 8, grab: false, workers: 4, inflight: 8, log: console.log, ...opts,
   };
@@ -83,14 +90,24 @@ export async function capture(opts) {
   const framesDir = path.join(dir, 'frames');
   const manifestFile = path.join(dir, 'manifest.json');
   const videoFile = path.join(dir, o.name + '.mp4');
+  const segDir = path.join(dir, 'seg'), stillsDir = path.join(dir, 'stills');
+  let segMode = !!o.video && !o.keepFrames;
+  if (segMode && (o.dev || o.grab)) { log('note: --dev / --grab cannot stream segments; keeping PNG frames'); segMode = false; }
+  const SEG = Math.max(1, Math.round(+o.segment)), nSeg = Math.ceil(total / SEG);
+  const stills = [...new Set([].concat(o.stills || []).flatMap((x) => String(x).split(',')).filter((x) => x !== '').map(Number))]
+    .filter((k) => Number.isInteger(k) && k >= 0 && k < total);
   if (o.fresh) {
     fs.rmSync(framesDir, { recursive: true, force: true });
+    fs.rmSync(segDir, { recursive: true, force: true });
+    fs.rmSync(stillsDir, { recursive: true, force: true });
     fs.rmSync(manifestFile, { force: true });
     fs.rmSync(videoFile, { force: true });
     if (!o.build) fs.rmSync(path.join(dir, 'build'), { recursive: true, force: true });
   }
-  fs.mkdirSync(framesDir, { recursive: true });
-  for (const f of fs.readdirSync(framesDir)) if (f.endsWith('.tmp')) fs.rmSync(path.join(framesDir, f), { force: true });
+  for (const d of [segMode ? segDir : framesDir, ...(stills.length ? [stillsDir] : [])]) {
+    fs.mkdirSync(d, { recursive: true });
+    for (const f of fs.readdirSync(d)) if (f.endsWith('.tmp')) { try { fs.rmSync(path.join(d, f), { force: true }); } catch {} }
+  }
 
   // ---------------------------------------------------------------- params + resume check
   const demo = resolveDemo(o.demo);
@@ -98,9 +115,19 @@ export async function capture(opts) {
     demo: demo ? (demo.url || demo.rel) : null, demoSha: demo?.file ? sha256(fs.readFileSync(demo.file)) : null,
     from, fps, w: +o.w, h: +o.h, query: String(o.query || '').replace(/^[?&]+/, ''), preroll: +o.preroll,
     angle: o.angle, source: o.dev ? 'dev' : 'build',
+    output: segMode ? 'segments' : 'frames', ...(segMode ? { segment: SEG, crf: +o.crf } : {}),
   };
   let manifest = fs.existsSync(manifestFile) ? JSON.parse(fs.readFileSync(manifestFile, 'utf8')) : null;
-  const onDisk = fs.readdirSync(framesDir).filter((f) => /^\d{5}\.png$/.test(f)).length;
+  // segment mode: a segment counts only with its manifest entry and its file (partial / orphaned files are removed)
+  if (segMode) {
+    const segs = manifest?.params?.output === 'segments' ? (manifest.segments || []) : [];
+    for (const f of fs.readdirSync(segDir)) {
+      const m = /^(\d{4})\.mp4$/.exec(f);
+      if (m && !segs[+m[1]]) fs.rmSync(path.join(segDir, f), { force: true });
+    }
+  }
+  const segsDone = () => { let i = 0; while (i < nSeg && manifest?.segments?.[i] && fs.existsSync(segFile(segDir, i))) i++; return i; };
+  const onDisk = segMode ? segsDone() : fs.existsSync(framesDir) ? fs.readdirSync(framesDir).filter((f) => /^\d{5}\.png$/.test(f)).length : 0;
   if (onDisk > 0 && !manifest) throw fatal(`${framesDir} has ${onDisk} frames but no manifest.json; use --fresh`);
   if (manifest) {
     const was = { ...manifest.params };
@@ -118,18 +145,21 @@ export async function capture(opts) {
       params, git: gitInfo(), source: null, renderer: null, frames: { total, done: 0 },
       drift: { maxAbs: 0, atFrame: null, tolerance: DT / 2, dt: DT }, sessions: [], warnings: [] };
   }
+  if (segMode) manifest.segments = (manifest.segments || []).slice(0, nSeg);
+  if (stills.length) manifest.stills = stills;
+  const nextFrame = () => (segMode ? Math.min(total, segsDone() * SEG) : firstMissingFrame(framesDir, total));
   manifest.params = params;
   manifest.frames.total = total;
   manifest.to = T(total);
   const saveManifest = () => { manifest.updated = new Date().toISOString(); writeAtomic(manifestFile, JSON.stringify(manifest, null, 2)); };
   const warn = (m) => { log('WARNING: ' + m); if (!manifest.warnings.includes(m)) manifest.warnings.push(m); };
 
-  let k0 = firstMissingFrame(framesDir, total);
+  let k0 = nextFrame();
   const needFrames = k0 < total;
-  log(`${o.name}: ${total} frames @ ${fps} fps, T ${from}..${T(total - 1).toFixed(4)} s, ${o.w}x${o.h}; ${k0} on disk`);
+  log(`${o.name}: ${total} frames @ ${fps} fps, T ${from}..${T(total - 1).toFixed(4)} s, ${o.w}x${o.h}; ${segMode ? `segments of ${SEG}: ${onDisk}/${nSeg} done` : `${k0} frames on disk`}`);
 
   // ---------------------------------------------------------------- source (snapshot or dev server)
-  let server = null, browser = null;
+  let server = null, browser = null, writer = null;
   const io = { n: 0, ms: 0, max: 0, bytes: 0 };             // frame file writes (upload path)
   const cleanup = async () => { try { await withTimeout(browser?.close(), 15000, "browser.close"); } catch {} browser = null; try { await server?.close(); } catch {} server = null; };
   const onSig = async () => { await cleanup(); process.exit(130); };
@@ -166,8 +196,11 @@ export async function capture(opts) {
         }
         manifest.source = { mode: 'build', dir: path.relative(VIZ, snap).replace(/\\/g, '/'), hash };
         server = await startStaticServer(snap, { port: +o.port, onUpload: async (p, body) => {
-          const m = /^frame\/(\d+)$/.exec(p);
-          if (!m || +m[1] >= total) throw new Error('bad upload ' + p);
+          const m = /^(frame|still)\/(\d+)$/.exec(p);
+          if (!m || +m[2] >= total) throw new Error('bad upload ' + p);
+          m[1] = m[2];
+          if (p.startsWith('still/')) { writeAtomic(path.join(stillsDir, pad(+m[1]) + '.png'), body); return; }
+          if (segMode) { if (!writer) throw new Error('no segment writer'); writer.push(+m[1], body); return; }
           if (body.length < 1000 || body.readUInt32BE(0) !== 0x89504e47) throw new Error(`frame ${m[1]}: not a PNG (${body.length} bytes)`);
           const t = performance.now();
           const file = path.join(framesDir, pad(+m[1]) + '.png');
@@ -205,12 +238,18 @@ export async function capture(opts) {
       const nLogs = logs.length;
       const fast = !o.dev && !o.grab;
       s.readback = fast ? `readPixels+workers(${o.workers})` : 'toDataURL';
-      if (fast) await installFrameSink(page, { workers: o.workers });
+      if (fast) await installFrameSink(page, { workers: o.workers, fmt: segMode ? 'raw' : 'png', stills });
+      if (segMode) {
+        writer = new SegmentWriter({ dir: segDir, fps, w: params.w, h: params.h, seg: SEG, total, crf: +o.crf, start: kFirst,
+          onSegment: (e) => { manifest.segments[e.i] = e; saveManifest(); log(`  segment ${e.i} (frames ${e.from}..${e.from + e.frames - 1}) ${(e.bytes / 1e6).toFixed(1)} MB`); } });
+      }
 
       const tLoop = Date.now();
       let k = kStart, dt = 0, rendered = 0, lastSave = Date.now(), lastGrab = -1;
       try {
-        while (k < total && s.frames < o.restartEvery) {
+        // (segment mode: restart only on a segment boundary)
+        while (k < total && !(s.frames >= o.restartEvery && (!segMode || k % SEG === 0))) {
+          if (writer?.error) throw writer.error;
           if (page.__crashed) throw new Error('renderer crashed');
           const grab = k >= kFirst;
           const r = await withTimeout(page.evaluate(({ dt, grab, fast, k }) => {
@@ -231,9 +270,11 @@ export async function capture(opts) {
           if (grab) {
             if (fast) {
               if (r.pending >= o.inflight) await withTimeout(page.evaluate((n) => window.__wp8sink.wait(n), o.inflight >> 1), o.frameTimeout, 'frame uploads');
+              if (segMode) await withTimeout(writer.waitBelow(2 * o.inflight), o.frameTimeout, 'segment encoder');
             } else {
               if (!PNG_OK(r.png)) throw new Error(`frame ${k}: empty grab (${String(r.png).slice(0, 40)})`);
               writeAtomic(path.join(framesDir, pad(k) + '.png'), Buffer.from(r.png.slice(22), 'base64'));
+              if (stills.includes(k)) fs.copyFileSync(path.join(framesDir, pad(k) + '.png'), path.join(stillsDir, pad(k) + '.png'));
             }
             s.frames++;
             lastGrab = k;
@@ -248,6 +289,7 @@ export async function capture(opts) {
         }
         if (fast) await withTimeout(page.evaluate(() => window.__wp8sink.wait(0)), o.frameTimeout, 'final frame uploads');
         if (await page.evaluate(() => window.__app.renderer.getContext().isContextLost())) throw new Error('WebGL context lost after the last frame');
+        if (writer) { await withTimeout(writer.flush(), 10 * o.frameTimeout, 'segment encoder flush'); writer = null; }
         s.end = k >= total ? 'done' : 'restart';
       } catch (e) {
         s.end = 'error';
@@ -260,7 +302,7 @@ export async function capture(opts) {
         s.fps = s.frames ? +(s.frames / (s.ms / 1000)).toFixed(2) : 0;
         s.rendered = rendered;
         if (io.n) { s.write = { files: io.n, msMean: +(io.ms / io.n).toFixed(1), msMax: +io.max.toFixed(1), MB: +(io.bytes / 1e6).toFixed(1) }; Object.assign(io, { n: 0, ms: 0, max: 0, bytes: 0 }); }
-        manifest.frames.done = firstMissingFrame(framesDir, total);
+        manifest.frames.done = nextFrame();
         const errs = logs.slice(nLogs).filter((l) => /pageerror|\[error\]|\[crash\]/.test(l));
         if (errs.length) s.pageErrors = errs.slice(0, 10).map((l) => l.slice(0, 300));
         saveManifest();
@@ -270,7 +312,7 @@ export async function capture(opts) {
     };
 
     const tAll = Date.now();
-    while ((k0 = firstMissingFrame(framesDir, total)) < total) {
+    while ((k0 = nextFrame()) < total) {
       try {
         await runSession(k0);
       } catch (e) {
@@ -279,7 +321,16 @@ export async function capture(opts) {
         log(`session failed (${failures}/${o.retries}): ${String(e.message || e).split('\n')[0]}`);
         try { await withTimeout(browser?.close(), 15000, "browser.close"); } catch {}
         browser = null;
-        if (e.rollback) {
+        if (writer) { await writer.abort(); writer = null; }
+        if (e.rollback && segMode) {                          // drop finished segments holding possibly bad frames
+          const dropped = [];
+          for (let i = Math.floor(e.rollback.from / SEG); i <= Math.floor(Math.min(e.rollback.to, total - 1) / SEG); i++) {
+            if (manifest.segments[i]) { manifest.segments[i] = null; fs.rmSync(segFile(segDir, i), { force: true }); dropped.push(i); }
+          }
+          e.rollback.session.rolledBack = { segments: dropped };
+          if (dropped.length) log(`  rolled back segments ${dropped.join(',')}`);
+          saveManifest();
+        } else if (e.rollback) {
           await new Promise((r) => setTimeout(r, 200));       // let uploads already received finish writing
           let n = 0;
           for (let k = e.rollback.from; k <= Math.min(e.rollback.to, total - 1); k++) {
@@ -310,7 +361,17 @@ export async function capture(opts) {
   }
 
   // ---------------------------------------------------------------- video
-  if (o.video) {
+  if (o.video && segMode) {
+    const v = manifest.video;
+    if (v && v.segments === nSeg && v.frames === total && fs.existsSync(videoFile)) log(`video: up to date ${videoFile}`);
+    else {
+      const t = Date.now();
+      concatSegments(Array.from({ length: nSeg }, (_, i) => segFile(segDir, i)), videoFile);
+      manifest.video = { file: path.basename(videoFile), frames: total, fps, crf: +o.crf, segments: nSeg, ms: Date.now() - t, bytes: fs.statSync(videoFile).size };
+      saveManifest();
+      log(`video: ${videoFile} (${nSeg} segments, ${(manifest.video.bytes / 1e6).toFixed(1)} MB, concat ${manifest.video.ms} ms)`);
+    }
+  } else if (o.video) {
     const v = manifest.video;
     if (v && v.frames === total && v.crf === +o.crf && v.fps === fps && fs.existsSync(videoFile)) log(`video: up to date ${videoFile}`);
     else {
@@ -348,7 +409,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const { has, opt } = argParser();
   if (!opt('name') || has('help')) {
     console.error('usage: node tools/capture.mjs --name NAME [--demo demo/x.json] --from 0 (--to 75 | --frames N) --fps 30 [--w 1280 --h 720]\n' +
-      '         [--port 5188] [--query k=v] [--video] [--crf 20] [--preroll 0] [--restart-every 600] [--angle vulkan] [--headed]\n' +
+      '         [--port 5188] [--query k=v] [--video [--segment 300] [--keep-frames]] [--crf 18] [--stills 16,33] [--preroll 0] [--restart-every 600] [--angle vulkan] [--headed]\n' +
       '         [--dev | --build DIR] [--fresh] [--retries 5] [--rollback 8] [--grab] [--workers 4] [--inflight 8] [--fault kind@K]');
     process.exit(2);
   }
@@ -357,7 +418,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     await capture({
       name: opt('name'), demo: opt('demo'), from: num('from', 0), to: num('to', undefined), frames: opt('frames') != null ? +opt('frames') : undefined,
       fps: num('fps', 30), w: num('w', 1280), h: num('h', 720), port: num('port', 5188), query: opt('query', ''),
-      video: has('video'), crf: num('crf', 20), preroll: num('preroll', 0), restartEvery: num('restart-every', 600),
+      video: has('video'), crf: num('crf', 18), keepFrames: has('keep-frames'), segment: num('segment', 300), stills: opt('stills', ''), preroll: num('preroll', 0), restartEvery: num('restart-every', 600),
       angle: opt('angle', 'vulkan'), headed: has('headed'), dev: has('dev'), build: opt('build', null), fresh: has('fresh'),
       retries: num('retries', 5), frameTimeout: num('frame-timeout', 60) * 1000, fault: opt('fault', null),
       rollback: num('rollback', 8), grab: has('grab'), workers: num('workers', 4), inflight: num('inflight', 8),
