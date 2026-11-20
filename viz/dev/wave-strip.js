@@ -7,14 +7,15 @@ import { fileURLToPath } from 'node:url';
 import { profile, profileExtents } from '../src/wave/profile.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-export const STRIP_TAUS = [-1, -0.5, 0, 0.18, 0.33, 0.42, 0.48, 0.55, 0.62, 0.7, 0.78, 0.9, 1.0, 1.5];
+export const STRIP_TAUS = [-1, 0, 0.12, 0.24, 0.3, 0.36, 0.43, 0.5, 0.58, 0.66, 0.73, 0.8, 0.84, 0.88, 0.94, 1.0, 1.5];
 export const STRIP_ROWS = [
   { name: 'wall  steep 1 · curl 0 · mush 0', H: 3, shape: { steep: 1, curl: 0, mush: 0 }, view: [-10, 10, -1.6, 4] },
-  { name: 'barrel  steep 0.8 · curl 1 · mush 0', H: 3, shape: { steep: 0.8, curl: 1, mush: 0 }, view: [-10, 10, -1.6, 4] },
+  { name: 'barrel  steep 0.95 · curl 0.9 · mush 0', H: 3, shape: { steep: 0.95, curl: 0.9, mush: 0 }, view: [-10, 10, -1.6, 4] },
+  { name: 'moderate  steep 0.9 · curl 0.6 · mush 0', H: 3, shape: { steep: 0.9, curl: 0.6, mush: 0 }, view: [-10, 10, -1.6, 4] },
   { name: 'mid  steep 0.6 · curl 0.5 · mush 0.25', H: 3, shape: { steep: 0.6, curl: 0.5, mush: 0.25 }, view: [-10, 10, -1.6, 4] },
   { name: 'mush  steep 0.3 · curl 0.3 · mush 1', H: 3, shape: { steep: 0.3, curl: 0.3, mush: 1 }, view: [-10, 10, -1.6, 4] },
-  { name: 'barrel H 1, full extent, vertical ×4', H: 1, shape: { steep: 0.8, curl: 1, mush: 0 }, view: [-24, 17, -1, 2.2], full: true, vex: 4 },
-  { name: 'barrel H 6, full extent, vertical ×2', H: 6, shape: { steep: 0.8, curl: 1, mush: 0 }, view: [-46, 36, -3, 8], full: true, vex: 2 },
+  { name: 'barrel H 1, full extent, vertical ×4', H: 1, shape: { steep: 0.8, curl: 0.9, mush: 0 }, view: [-24, 17, -1, 2.2], full: true, vex: 4 },
+  { name: 'barrel H 6, full extent, vertical ×2', H: 6, shape: { steep: 0.8, curl: 0.9, mush: 0 }, view: [-46, 36, -3, 8], full: true, vex: 2 },
 ];
 
 export function stripSVG({ taus = STRIP_TAUS, rows = STRIP_ROWS, PW = 150 } = {}) {

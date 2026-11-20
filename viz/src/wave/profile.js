@@ -9,11 +9,11 @@
 //   xi    > 0 shoreward (world -X). dxi, dy = d/dsigma. thick = water-sheet thickness (m) along the inward
 //         normal, capped at THICK_CAP·H (lip translucency hint; approximate under the horizontal warps).
 //
-// Shape: families are blended point-wise: wPLUNGE = curl·max(0, 1-2·mush)², wSPILL = mush, wWALL = 1 - wPLUNGE - wSPILL.
+// Shape: families are blended point-wise: wPLUNGE = smoothstep(0.25, 0.9, curl)·max(0, 1-2·mush)², wSPILL = mush, wWALL = 1 - wPLUNGE - wSPILL.
 //   Mush removes the plunge entirely by mush 0.5 (C1 in mush) — plunge and spill are never mixed in quantity, which
 //   (with the crash keys) keeps every blend free of self-intersection (test: wave-profile "never self-intersect").
 //   steep compresses (1) or widens (0) the crest/face horizontally around x = STEEP_C:
-//   x' = x + (kS-1)(x-c)·exp(-((x-c)/R)²), kS = 1.3 - 0.55·steep (monotone, so no self-intersection).
+//   x' = x + (kS-1)(x-c)·exp(-((x-c)/R)²), kS = mix(1.3 - 0.55·steep, 1, wPLUNGE) (monotone, so no self-intersection).
 //
 // Extents (metres): core horizontal unit Sx = sqrt(H² + 1) (aspect-true for big waves, a wider lump for
 //   small ones), plus cubic tails so that xi(sigma=0) = -(18 + 4.5H) and xi(sigma=1) = 12 + 3.8H while that
@@ -68,7 +68,7 @@ function sigmaWeights(sigma) {
  */
 export function profileKeyUnits(out, tau, sigma, curl, mush) {
   curl = clamp01(curl); mush = clamp01(mush);
-  const pm = Math.max(0, 1 - 2 * mush), wf1 = curl * pm * pm, wf2 = mush, wf0 = 1 - wf1 - wf2;
+  const pm = Math.max(0, 1 - 2 * mush), wf1 = curlWeight(curl) * pm * pm, wf2 = mush, wf0 = 1 - wf1 - wf2;
   tauWeights(tau); sigmaWeights(sigma);
   let x = 0, y = 0, dx = 0, dy = 0, th = 0;
   for (let a = 0; a < 4; a++) {
@@ -91,11 +91,20 @@ export function profileKeyUnits(out, tau, sigma, curl, mush) {
 
 const KU = new Float64Array(5);
 
+/** Plunge-family weight of curl: smoothstep(CURL_LO, CURL_HI, curl) — no tube below ~0.3, moderate 0.5–0.7, full
+ *  plunging barrel from ~0.85 (same formula as GLSL smoothstep). */
+export const CURL_LO = 0.25, CURL_HI = 0.9;
+export function curlWeight(curl) {
+  const t = Math.min(1, Math.max(0, (curl - CURL_LO) / (CURL_HI - CURL_LO)));
+  return t * t * (3 - 2 * t);
+}
+
 /** Allocation-free core: writes out = { xi, y, dxi, dy, thick } and returns it. */
 export function profileInto(out, tau, sigma, H, steep, curl, mush) {
   profileKeyUnits(KU, tau, sigma, curl, mush);
-  // steep warp (key units)
-  const kS = 1.3 - 0.55 * clamp01(steep);
+  // steep warp (key units); the plunge family is exempt (kS → 1 with its weight): the tube keeps its authored size
+  const pmS = Math.max(0, 1 - 2 * clamp01(mush)), wP = curlWeight(clamp01(curl)) * pmS * pmS;
+  const kS = (1.3 - 0.55 * clamp01(steep)) * (1 - wP) + wP;
   const v = (KU[0] - STEEP_C) / STEEP_R, e = Math.exp(-v * v);
   const xs = KU[0] + (kS - 1) * (KU[0] - STEEP_C) * e;
   const dS = 1 + (kS - 1) * e * (1 - 2 * v * v);

@@ -5,7 +5,7 @@
 // EXPORTS: PROFILE_GLSL (string), packFront(front, tRef, out?), makeKeyTextureSpec(), UNIFORM_NAMES, MAX_BREAKS = 3.
 //
 // ONCE (shared by all fronts):
-//   const ks = makeKeyTextureSpec();   // { data: Float32Array, width: 96, height: 33 }
+//   const ks = makeKeyTextureSpec();   // { data: Float32Array, width: 96, height: 36 }
 //   keyTex = new THREE.DataTexture(ks.data, ks.width, ks.height, THREE.RGBAFormat, THREE.FloatType);
 //   keyTex.minFilter = keyTex.magFilter = THREE.NearestFilter; keyTex.generateMipmaps = false; keyTex.needsUpdate = true;
 //   Mesh grid: attribute (u, sigma), e.g. 200 columns in u ∈ [0,1] × 64 rows in sigma ∈ [0,1], UNIFORM steps — the
@@ -55,7 +55,7 @@
 import { NCOLS, FRONT_W, FRONT_Z0 } from '../contracts.js';
 import { NPTS, NKEY, NFAM, KEY_TAUS, KEY_DATA, KEY_TEX_W, KEY_TEX_H, CORE_BACK, CORE_FRONT, THICK_CAP,
   SIGMA_CREST, SIGMA_LIP, SIGMA_TROUGH } from './keyframes.js';
-import { STEEP_C, STEEP_R } from './profile.js';
+import { STEEP_C, STEEP_R, CURL_LO, CURL_HI } from './profile.js';
 import { DU } from './field.js';
 
 const f = (v) => { const s = String(v); return /[.eE]/.test(s) ? s : s + '.0'; };
@@ -177,7 +177,7 @@ vec3 bcLocalTau(float u, float tl) { BCCol c = bcColumn(u, tl); return vec3(c.ta
 
 void bcProfileFull(float tau, float sigma, float H, vec3 shape, out vec4 P, out float thick) {
   float steep = clamp(shape.x, 0.0, 1.0), curl = clamp(shape.y, 0.0, 1.0), mush = clamp(shape.z, 0.0, 1.0);
-  float pm = max(0.0, 1.0 - 2.0 * mush), wf1 = curl * pm * pm, wf2 = mush, wf0 = 1.0 - wf1 - wf2;
+  float pm = max(0.0, 1.0 - 2.0 * mush), wf1 = smoothstep(${f(CURL_LO)}, ${f(CURL_HI)}, curl) * pm * pm, wf2 = mush, wf0 = 1.0 - wf1 - wf2;
   // tau: non-uniform cubic Hermite over keys (zero tangent at both end keys)
   tau = clamp(tau, -1.0, 2.0);
   int k = 0;
@@ -209,7 +209,7 @@ void bcProfileFull(float tau, float sigma, float H, vec3 shape, out vec4 P, out 
   }
   dx *= float(BC_NPTS - 1); dy *= float(BC_NPTS - 1);
   // steep warp
-  float kS = 1.3 - 0.55 * steep;
+  float kS = (1.3 - 0.55 * steep) * (1.0 - wf1) + wf1;
   float v = (x - ${f(STEEP_C)}) / ${f(STEEP_R)}, e = exp(-v * v);
   float xs = x + (kS - 1.0) * (x - ${f(STEEP_C)}) * e;
   float dS = 1.0 + (kS - 1.0) * e * (1.0 - 2.0 * v * v);

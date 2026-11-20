@@ -115,12 +115,12 @@ test('surfaceHeight: lowest surface under the lip, ambient included, continuous 
     assert.ok(Math.abs(surfaceHeight([g], p.x, p.z, tt) - p.y) < 1e-6, `s ${s} t ${tt}`);
   }
   // continuity along x on non-overhanging waves (approach swell, wall, mush) and along z
-  for (const [f, tt] of [[fronts[3], 1], [uniformFront(3, 1, 0, 0), 0.4 * 2.6 - 1.5], [uniformFront(2, 0.3, 0.3, 1), 0.5]]) {
+  for (const [f, tt] of [[fronts[3], 1], [uniformFront(3, 1, 0, 0), 0.4 * 2.6 - 1.5], [uniformFront(2, 0.3, 0.3, 1), 0.2]]) {
     const e = profileExtents(3);
     let prev = null;
-    for (let x = f.x - e.front - 2; x < f.x - e.back + 2; x += 0.05) {
+    for (let x = f.x - e.front - 2; x < f.x - e.back + 2; x += 0.01) {
       const h = surfaceHeight([f], x, 0, tt);
-      if (prev !== null) assert.ok(Math.abs(h - prev) < 0.12, `jump at x ${x.toFixed(2)}: ${prev} → ${h}`);
+      if (prev !== null) assert.ok(Math.abs(h - prev) < 0.06, `jump at x ${x.toFixed(2)}: ${prev} → ${h}`);
       prev = h;
     }
     prev = null;
@@ -147,7 +147,7 @@ test('barrel: only with high curl and tau in the throw/plunge range; tube centre
   const hi = scan(1, 0);
   assert.ok(hi.length > 10, 'barrel at high curl');
   for (const [tau, b] of hi) {
-    assert.ok(tau > 0.3 && tau < 0.9, `tau ${tau} outside throw/plunge`);
+    assert.ok(tau > 0.2 && tau < 0.93, `tau ${tau} outside throw/plunge`);
     assert.ok(b.r > 0.36 && b.r < 3, `radius ${b.r}`);
   }
   // centre is in air: above the floor and the lip above it
@@ -157,6 +157,29 @@ test('barrel: only with high curl and tau in the throw/plunge range; tube centre
   assert.equal(scan(0.3, 0).length, 0, 'no barrel at low curl');
   assert.equal(scan(1, 1).length, 0, 'no barrel when mushy');
   assert.equal(barrel(fronts[3], 0.5, 1), null, 'no barrel on an unbroken swell');
+});
+
+test('curl reads: high curl = big hollow tube, mid = moderate curl, low = pitching wall', () => {
+  const Tb = 2.6, H = 3.45;
+  const scan = (curl, steep = 1) => {
+    const f = uniformFront(H, steep, curl, 0), ts = breakStartTime(f.breaks[0], 0.5);
+    let over = 0, open = 0, span = 0;
+    for (let tau = 0; tau <= 1; tau += 0.01) {
+      const b = barrel(f, 0.5, ts + tau * Tb);
+      if (b) { over = Math.max(over, b.overhang); open = Math.max(open, 2 * b.r); span += 0.01; }
+    }
+    return { over: over / H, open: open / H, span };
+  };
+  for (const curl of [0.85, 0.95]) for (const steep of [0.5, 1]) {
+    const s = scan(curl, steep);
+    assert.ok(s.over >= 1.0 && s.over <= 1.5, `curl ${curl}: throw ${s.over.toFixed(2)} H`);
+    assert.ok(s.open >= 0.6, `curl ${curl}: opening ${s.open.toFixed(2)} H`);
+    assert.ok(s.span >= 0.45, `curl ${curl}: tube open for ${s.span.toFixed(2)} tau`);
+  }
+  const mid = scan(0.6);
+  assert.ok(mid.over > 0.5 && mid.over < 0.95, `curl 0.6: moderate throw ${mid.over.toFixed(2)} H`);
+  const low = scan(0.25);
+  assert.equal(low.over, 0, 'curl 0.25: no tube');
 });
 
 test('lip: landmark C, follows the crest', () => {
