@@ -39,18 +39,25 @@ export function frontHmax(front) {
 export function computeClips(fronts) {
   const order = fronts.map((f, i) => i).sort((a, b) => fronts[a].x - fronts[b].x);
   const out = new Array(fronts.length);
-  for (let k = 0; k < order.length; k++) {
-    const i = order[k], f = fronts[i];
-    const Hmax = frontHmax(f);
-    const eB = extentBack(Hmax), eF = extentFront(Hmax);
-    const dF = k > 0 ? f.x - fronts[order[k - 1]].x : Infinity;            // neighbour ahead (shoreward)
-    const dB = k < order.length - 1 ? fronts[order[k + 1]].x - f.x : Infinity;  // neighbour behind (seaward)
-    const clipF = dF / 2 < eF, clipB = dB / 2 < eB;
-    const xiMax = clipF ? Math.max(dF / 2, 0.5) : eF;
-    const xiMin = clipB ? -Math.max(dB / 2, 0.5) : -eB;
-    const bandF = clipF ? Math.min(8, Math.max(1.0, 0.45 * xiMax)) : 0.5;
-    const bandB = clipB ? Math.min(8, Math.max(1.0, -0.45 * xiMin)) : 0.5;
-    out[i] = { xiMin, xiMax, bandB, bandF, clipB, clipF, Hmax };
+  for (const i of order) {
+    const Hmax = frontHmax(fronts[i]);
+    out[i] = { xiMin: -extentBack(Hmax), xiMax: extentFront(Hmax), bandB: 0.5, bandF: 0.5, clipB: false, clipF: false, Hmax };
+  }
+  // each adjacent pair (A shoreward, B seaward, gap d): if A's back and B's front overlap, both are cut at one
+  // shared line inside the overlap (the midpoint when possible) so the two meshes meet exactly — never a strip
+  // that only one ocean-mask box covers
+  for (let k = 0; k + 1 < order.length; k++) {
+    const A = out[order[k]], B = out[order[k + 1]];
+    const d = fronts[order[k + 1]].x - fronts[order[k]].x;
+    const eA = -A.xiMin, eB = B.xiMax;
+    if (eA + eB <= d) continue;
+    const c = Math.min(Math.max(d / 2, d - eB), eA);      // cut distance behind A's crest
+    A.xiMin = -Math.max(c, 0.5); A.clipB = true;
+    B.xiMax = Math.max(d - c, 0.5); B.clipF = true;
+  }
+  for (const o of out) {
+    if (o.clipF) o.bandF = Math.min(8, Math.max(1.0, 0.45 * o.xiMax));
+    if (o.clipB) o.bandB = Math.min(8, Math.max(1.0, -0.45 * o.xiMin));
   }
   return out;
 }

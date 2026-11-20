@@ -98,7 +98,7 @@ void main() {
   int bi = int(k == 0 ? uSprayB.x : k == 1 ? uSprayB.y : uSprayB.z);
   vec4 A = uFrontZB[bi * 3], B = uFrontZB[bi * 3 + 1], C = uFrontZB[bi * 3 + 2];
   float Tb = B.z;
-  float tauT = kind == 0 ? mix(0.1, 0.6, spRnd(s)) : kind == 1 ? mix(0.56, 0.85, spRnd(s)) : mix(0.58, 1.6, spRnd(s));    // mist: plunge + along the whitewater
+  float tauT = kind == 0 ? mix(0.1, 0.74, spRnd(s)) : kind == 1 ? mix(0.74, 0.98, spRnd(s)) : mix(0.74, 1.6, spRnd(s));    // mist: plunge + along the whitewater
   float dtc = te - tauT * Tb - A.x;                     // column start relative to tBreak
   if (dtc < 0.0) return;
   bool clo = C.y > 0.5;

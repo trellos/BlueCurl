@@ -53,20 +53,20 @@ float wvFoam(float tauU, float sg, float xi, float yl, float H, float curl, floa
   float tile = uFoamTune.x;
 
   // ---- envelopes (wave coordinates)
-  float wThrow = smoothstep(0.06, 0.22, tauU) * (1.0 - smoothstep(0.5, 0.66, tauU));
+  float wThrow = smoothstep(0.06, 0.22, tauU) * (1.0 - smoothstep(0.66, 0.8, tauU));   // lip open until it lands (~0.78)
   float dl = (sg - WV_SIG_LIP + 0.004) / 0.017;
   float lip = wThrow * exp(-dl * dl);
   float feather = wThrow * (1.0 - curl) * smoothstep(WV_SIG_LIP - 0.08, WV_SIG_LIP, sg) * (1.0 - smoothstep(WV_SIG_LIP, WV_SIG_LIP + 0.02, sg));
   float spill = mush * smoothstep(0.0, 0.25, tauU) * (1.0 - smoothstep(0.85, 1.25, tauU))
               * smoothstep(WV_SIG_CREST - 0.03, WV_SIG_CREST + 0.03, sg) * (1.0 - smoothstep(WV_SIG_LIP + 0.05, WV_SIG_LIP + 0.22, sg));
-  float Ib = smoothstep(0.5, 0.72, tauU) * (1.0 - smoothstep(1.15, 2.05, tauU));
+  float Ib = smoothstep(0.68, 0.86, tauU) * (1.0 - smoothstep(1.2, 2.05, tauU));
   float front = smoothstep(WV_SIG_CREST - 0.07, WV_SIG_CREST, sg);
   float boreS = front * (1.0 - smoothstep(WV_SIG_TROUGH, WV_SIG_TROUGH + 0.09, sg));
   // the impact explodes first around the landing lip / trough, then the whole roller is white
-  float bore = Ib * boreS * mix(1.0, 0.75 + 0.25 * smoothstep(WV_SIG_LIP - 0.05, WV_SIG_LIP + 0.1, sg), 1.0 - smoothstep(0.7, 0.9, tauU));
+  float bore = Ib * boreS * mix(1.0, 0.75 + 0.25 * smoothstep(WV_SIG_LIP - 0.05, WV_SIG_LIP + 0.1, sg), 1.0 - smoothstep(0.8, 0.98, tauU));
   // impact band: the lip tip, its underside and the landing line are white from the moment it touches down
   // (hides the crease where the thrown lip meets the face)
-  float impact = smoothstep(0.5, 0.6, tauU) * (1.0 - smoothstep(1.0, 1.3, tauU))
+  float impact = smoothstep(0.72, 0.82, tauU) * (1.0 - smoothstep(1.05, 1.35, tauU))
                * smoothstep(WV_SIG_LIP - 0.06, WV_SIG_LIP - 0.02, sg) * (1.0 - smoothstep(WV_SIG_TROUGH - 0.12, WV_SIG_TROUGH - 0.04, sg));
   bore = max(bore, impact);
   // trail: deposited behind the crest where the bore passed, decaying in place
@@ -106,7 +106,7 @@ float wvFoam(float tauU, float sg, float xi, float yl, float H, float curl, floa
   float fpatch = smoothstep(0.15, 0.75, nc.r * 0.7 + nw.r * 0.3);
   float cTrail = lace * clamp(trail * g * (0.55 + 0.45 * fpatch) * 1.2, 0.0, 1.0);
   float cCarpet = lace * clamp(carpet * g * 0.45 * fpatch, 0.0, 1.0);
-  float cLip = clamp((lip * 0.9 + feather * 0.6) * (0.5 + 0.7 * nf.g) * g, 0.0, 1.0);
+  float cLip = clamp((lip * 0.9 + feather * 0.6) * (0.75 + 0.35 * bcVnoise(vec2(P.z * 0.9, t * 1.3))) * g, 0.0, 1.0);   // along-crest only (no rope)
   lipLine = cLip * uFoamTune.w;
   float c = max(max(cBore, cTrail), max(cCarpet, cLip));
   // relief height (0..1): lumps stand up in dense whitewater, lace is flat

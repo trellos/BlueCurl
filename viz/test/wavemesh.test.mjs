@@ -84,3 +84,14 @@ test('crest history covers the particle lifetimes and is a pure function', () =>
   assert.deepEqual(Array.from(h2), Array.from(hist));
   assert.equal(NCOLS, 128);
 });
+
+test('asymmetric overlap: both meshes cut at one shared line (no uncovered strip)', () => {
+  const a = makeFront({ id: 1, x: 27.6, cols: flat(0.3) });     // small: short back extent
+  const b = makeFront({ id: 2, x: 76.3, cols: flat(4.7) });     // big: long front extent
+  const [ca, cb] = computeClips([a, b]);
+  const d = b.x - a.x;
+  assert.ok(extentBack(0.3) + extentFront(4.7) > d);             // they overlap
+  assert.equal(ca.clipB, true); assert.equal(cb.clipF, true);
+  assert.ok(Math.abs((a.x - ca.xiMin) - (b.x - cb.xiMax)) < 1e-9);
+  assert.ok(-ca.xiMin <= extentBack(0.3) + 1e-4 && cb.xiMax <= extentFront(4.7) + 1e-4);
+});
