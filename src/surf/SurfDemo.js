@@ -107,9 +107,10 @@ export class SurfDemo {
       pos = [xw + 20 * dir, 0.6 + 0.35 * H, zL + 3.5];
       look = [xw - 2 * dir, 0.45 * H, zA - 0.5];
     } else if (kind === 'closeout') {
-      // from the sand, looking down the line at ~20 deg: the lip's profile as it pitches shoreward
-      pos = [xw + 24 * dir, 2.3, 1.5];
-      look = [xw - 4 * dir, 0.55 * H, zA - 0.5];
+      // a water photographer ~5 m inside the landing line, eye 1.5 m above the still water, looking down
+      // the line ~20 deg seaward: the nearest part of the wave stands up and pitches ~7 m away
+      pos = [xw + 14 * dir, 1.5, zL + 5];
+      look = [xw - 6 * dir, 1.2, zA - 1.0];
     } else if (kind === 'drone') {
       pos = [xw + 11 * dir, 4 + 2.5 * H, zL + 12];
       look = [xw - 5 * dir, 0, zA - 1];
