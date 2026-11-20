@@ -193,7 +193,8 @@ export class GuitarInput {
 
   _fire(rec, lane, velocity, name, fired) {
     rec.fired.add(lane);
-    const id = this.app.input?.impulse?.({ lane: lane - 1, lanes: LANES, scale: 1, velocity });
+    // every impulse after a Note's first carries chord = that first id, so the beat counts a chord as one note
+    const id = this.app.input?.impulse?.({ lane: lane - 1, lanes: LANES, scale: 1, velocity, chord: rec.ids[0] ?? null });
     if (id != null) rec.ids.push(id);
     fired.push(lane);
     this._syncKey();

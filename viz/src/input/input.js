@@ -70,11 +70,12 @@ export class InputBus {
   }
 
   // ------------------------------------------------------------ API
-  impulse({ lane = 0, lanes = 8, scale = 1, velocity = 1, duration = null, time = null } = {}) {
+  impulse({ lane = 0, lanes = 8, scale = 1, velocity = 1, duration = null, time = null, chord = null } = {}) {
     const id = ++this._id;
     const t = this._resolve(time);
     const on = { seq: this._seq++, t, type: 'on', id, lane, lanes, u: laneToU(lane, lanes), scale, velocity };
     if (duration != null && Number.isFinite(duration)) on.duration = duration;
+    if (chord != null) on.chord = chord;           // id of the chord's first impulse: the beat counts the chord once
     this._insert(on);
     this._ons.set(id, on);
     if (on.duration != null) this._logOff(id, Math.max(t + DT, quantize(t + duration)));

@@ -1,9 +1,11 @@
 // BlueCurl Swell — beat sim (contract: src/contracts.js "beat"). Pure and deterministic: f(cfg, input log).
 // 4/4 bar clock at cfg.bpm; a bpm change applies from the next downbeat. Level 1..maxLevel moves at most one step
-// per measure toward target = clamp(notes in the measure that just ended, 1, maxLevel).
+// per measure toward target = clamp(notes in the measure that just ended, 1, maxLevel). A chord counts as one note.
 import { STEP_TOL } from '../contracts.js';
 
 const RING = 64;
+/** s: notes struck this close together (e.g. several number keys at once) count as one chord = one note. */
+export const CHORD_WINDOW = 0.04;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 /** Measure length (s) for a bpm; a missing/invalid bpm falls back to 120 so the clock never stalls. */
 export const measureLenFor = (bpm) => 240 / (Number.isFinite(+bpm) && +bpm > 0 ? clamp(+bpm, 1, 1000) : 120);
@@ -20,6 +22,7 @@ export class Beat {
     this.measureLen = measureLenFor(this.cfg.bpm);
     this.beatLen = this.measureLen / 4;
     this.notes = 0;
+    this._lastNoteT = -Infinity;
     this.level = 1;
     this.target = 1;
     this.measures = [];
@@ -32,7 +35,13 @@ export class Beat {
     const tol = STEP_TOL / 2;
     // downbeats first: notes applied on the step that reaches a downbeat belong to the new measure
     for (let guard = 0; guard < 16 && t >= this.measureT0 + this.measureLen - tol; guard++) this._downbeat();
-    for (const ev of events) if (ev && ev.type === 'on') this.notes++;
+    for (const ev of events) {
+      if (!ev || ev.type !== 'on') continue;
+      if (ev.chord != null && ev.chord !== ev.id) continue;          // a later tone of a tagged chord (guitar)
+      if (t - this._lastNoteT < CHORD_WINDOW - STEP_TOL) continue;   // struck with the previous note: same chord
+      this._lastNoteT = t;
+      this.notes++;
+    }
   }
 
   _downbeat() {
@@ -48,6 +57,7 @@ export class Beat {
     this.measureLen = measureLenFor(this.cfg.bpm);
     this.beatLen = this.measureLen / 4;
     this.notes = 0;
+    this._lastNoteT = -Infinity;                  // a chord window never spans a bar line
     this._push(this.events, { t: t1, type: 'downbeat', index: this.measure, level: this.level, prevLevel, change: this.level - prevLevel });
   }
 

@@ -95,6 +95,7 @@ export const intervalSec = (cfg) => cfg.bars * 4 * 60 / cfg.bpm;
  * @property {number} [u]     crest coordinate = laneToU(lane, lanes)
  * @property {number} [scale] @property {number} [velocity]   strength = scale * velocity (keyboard: 1.0, Shift = soft 0.4)
  * @property {number} [duration] optional, known at 'off' (or given up-front by a harness)
+ * @property {number} [chord]   'on' only: id of the chord's first impulse (later tones of one guitar chord)
  * @property {string} [key]   @property {*} [value]   ('cfg')
  *
  * InputBus (src/input/input.js):
@@ -295,6 +296,8 @@ export const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8,
  *   BeatEvent { t, type:'downbeat', index, level, prevLevel, change: -1|0|1 }
  *   barPhase(t) → { measure, beat (0..3), frac } for t within the current/next measure (audio + fx)
  * Level rule: level starts at 1. At each downbeat: target = clamp(notes in the measure that just ended, 1, 8);
+ *   a chord counts as ONE note: 'on' events with chord = <first impulse id> (guitar chord tones) are skipped, and
+ *   notes within CHORD_WINDOW (40 ms, same measure) of the last counted one merge (several keys struck together);
  *   level += sign(target − level)  (one step per measure at most).
  * BeatAudio (src/beat/BeatAudio.js): Web Audio synth (surf/tropical groove, 8 patterns, level 1 = metronome with an
  *   accented 1). Output only — never feeds the sim. Scheduled from sim time with a constant latency; silent while

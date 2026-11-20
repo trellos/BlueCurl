@@ -33,3 +33,19 @@ test('the mic ignores a note matching a pluck just played (echo), not other note
   g.onNoteEvent('noteStarted', { id: 'c', pitch: { current: { midi: 52, name: 'E3' } }, amplitude: { rms: 0.05 } });
   assert.equal(fired.length, 2);                        // only the mic is echo-filtered
 });
+
+test('a guitar chord tags its later tones with the first impulse id (the beat counts it once)', async () => {
+  const { InputBus } = await import('../src/input/input.js');
+  const { Beat } = await import('../src/beat/beat.js');
+  const { DEFAULT_CFG, DT } = await import('../src/contracts.js');
+  const bus = new InputBus(() => 0);
+  const g = new GuitarInput({ cfg: {}, simTime: 0, input: bus });
+  const r = g.guitarNote({ midis: [48, 52, 55, 60], duration: null });
+  assert.equal(r.lanes.length, 4);
+  const ons = bus.log.filter((e) => e.type === 'on');
+  assert.equal(ons[0].chord, undefined);
+  assert.ok(ons.slice(1).every((e) => e.chord === ons[0].id));
+  const beat = new Beat(structuredClone(DEFAULT_CFG));
+  for (let i = 1; i * DT <= 2 + DT; i++) beat.step(i * DT, DT, bus.drainUntil(i * DT));
+  assert.equal(beat.measures.at(-1).notes, 1);
+});

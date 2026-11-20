@@ -109,11 +109,17 @@ test('notes landing on the downbeat step count for the new measure', () => {
   assert.equal(r.beat.measures[1].notes, 1);
 });
 
-test('chords count every note; invalid bpm falls back to 120', () => {
+test('a chord counts as one note (tagged guitar chord, keys struck together); invalid bpm falls back to 120', () => {
   const r = rig();
-  for (let i = 0; i < 3; i++) r.bus.impulse({ lane: i, time: 0.5, duration: 0.1 });
+  for (let i = 0; i < 3; i++) r.bus.impulse({ lane: i, time: 0.5, duration: 0.1 });   // three keys at once
+  const lead = r.bus.impulse({ lane: 0, time: 1.0, duration: 0.3 });                  // guitar chord: tones arrive later
+  r.bus.impulse({ lane: 2, time: 1.08, duration: 0.3, chord: lead });
+  r.bus.impulse({ lane: 4, time: 1.08, duration: 0.3, chord: lead });
+  r.bus.impulse({ lane: 5, time: 1.5, duration: 0.1 });                               // a separate note
+  r.bus.impulse({ lane: 6, time: 1.5 + 0.05, duration: 0.1 });                        // 50 ms later: separate
   r.run(2 + DT);
-  assert.equal(r.beat.target, 3);
+  assert.equal(r.beat.measures.at(-1).notes, 4);
+  assert.equal(r.beat.target, 4);
   const b = new Beat({ ...structuredClone(DEFAULT_CFG), bpm: 0 });
   assert.equal(b.measureLen, 2);
 });
