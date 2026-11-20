@@ -102,12 +102,18 @@ if (opt('seq')) {
   const [a, b, s] = opt('seq').split(':').map(Number);
   const seqDir = path.join(out, 'seq');
   fs.mkdirSync(seqDir, { recursive: true });
-  await page.evaluate((t) => window.__seek(t), a);
-  let i = 0;
+  // --from N resumes an interrupted sequence at frame N. Pass warmup = N*s + preroll + (original
+  // warmup) in --params so the simulation starts at the same time as the original run (same history);
+  // --preroll P:dp renders P seconds in dp steps before frame N (settles the camera smoothing).
+  const from = parseInt(opt('from', '0'), 10);
+  const [pre, preStep] = (opt('preroll') || '0:0.2').split(':').map(Number);
+  await page.evaluate((t) => window.__seek(t), a + from * s - pre);
+  for (let k = 0; k < Math.round(pre / preStep); k++) await page.evaluate((dt) => window.__advance(dt), preStep);
+  let i = from;
   const frameMs = [];
-  for (let t = a; t <= b + 1e-6; t += s, i++) {
+  for (let t = a + from * s; t <= b + 1e-6; t += s, i++) {
     const t0 = Date.now();
-    if (i > 0) await page.evaluate((dt) => window.__advance(dt), s);
+    if (i > from) await page.evaluate((dt) => window.__advance(dt), s);
     const dtMs = Date.now() - t0;
     frameMs.push(dtMs);
     await save(path.join(seqDir, String(i).padStart(5, '0') + '.png'));
