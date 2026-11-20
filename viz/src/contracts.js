@@ -208,7 +208,9 @@ float bcAmbient(vec2 xz, float t) {
  * @property {number} id  @property {'surfer'|'dolphin'|'seal'} kind  @property {string} name
  * @property {RiderStateName} state
  * @property {'cruise'|'carve'|'tube'|'porpoise'|'breach'|null} style
- * @property {string} action   animation cue: idle|paddle|swim|pop|trim|bottomTurn|lipHit|cutback|crouch|kickout|wipe|jump|dive
+ * @property {string} action   animation cue: idle|paddle|swim|pop|trim|bottomTurn|lipHit|cutback|crouch|kickout|wipe|jump|dive|roll
+ * @property {boolean} tube    true while inside the barrel (WP6a)
+ *   (Riders also exposes `rides`: a log of completed rides. Riders depends on swell.js pathSpline/pathEval + front.travel.)
  * @property {number} actionT  0..1 progress of the action
  * @property {{x:number,y:number,z:number}} pos  @property {{x:number,y:number,z:number}} fwd  @property {{x:number,y:number,z:number}} up
  * @property {number} speed  @property {number|null} frontId  @property {number} zi  @property {number} u  @property {number} sigma
