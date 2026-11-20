@@ -1,6 +1,11 @@
 # Surfing visualization — wave rendering spike on ShoreBreak
 
-_Status: draft — results sections are filled in from the captures below._
+_Status: concluded. **Verdict: ShoreBreak is not suitable as the rendering foundation for surfable waves.** Its ocean is a
+single-valued heightfield built for a 0.45 m shore break; the overturning lip is a separate thin ribbon, the broken wave's
+surface vanishes after impact and its foam / swash systems are tied to the Nice near-shore zone. The spike did prove the
+indefinite peel (stage = f(t − x/v_peel)) and produced a reusable surf rig (board, wave-coordinate planner, chase camera).
+The comparison of alternatives and the recommended approach (a swept-profile wave mesh) are in
+[research/WAVE-RENDERING.md](research/WAVE-RENDERING.md)._
 
 ## 1. What ShoreBreak is
 
