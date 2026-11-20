@@ -11,3 +11,4 @@
 - WP2/WP4a landed. WP2 found the default camera could not frame all three zones; the only camera that did put the point ~370 m away (a 2.6 m wave ≈ 9 px at 1080p). Decision: compact the layout ×0.6 (FRONT_W 312, zone lines 180/100/33, PATH 600/180/100/33/0) and fantasy-scale heights (Hscale 2.0/1.3/0.7, Hbreak 3.0/0.9/0.45). WP2/WP3/WP4a re-tuned to match.
 - breakStartTime sections: was a discontinuous staircase (mesh tears, per WP4a); now smooth monotone `s − 0.75·sin(ws)/w`. Remaining discontinuities (peel end, zone edges) are hidden by the sim tapering H there.
 - Known: in the bay, set fronts are ~20 m apart but a profile is ~40 m wide → WP4b clips each mesh at the midpoint to its neighbours.
+- Known (WP3): a column still re-forming from an outer break (tau≈1.5) can start its point break immediately, so tau jumps 1.5→0 (possible pop). Rare; check in integration stills.
