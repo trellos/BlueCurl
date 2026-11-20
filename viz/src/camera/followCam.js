@@ -39,6 +39,10 @@ export const SUBMERGED_HEIGHT = 0.75;
 /** Extra elevation (deg) while an animal is under water: look down through the surface at where it swims. */
 export const SUBMERGED_EL = 10;
 
+/** Flock framing: size-rule height (m, the burst + circling birds) and look-at height above the rider (m). */
+export const FLOCK_HEIGHT = 9;
+export const FLOCK_LOOK_UP = 11;
+
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const RAD = Math.PI / 180;
 
@@ -48,6 +52,8 @@ export function framing(kind, style, H, sub = 0) {
   const animal = kind === 'dolphin' || kind === 'seal' || kind === 'turtle';
   let hR = (RIDER_HEIGHT[kind] || 1.5) * (style === 'tube' ? 0.85 : 1);
   if (animal) hR += (SUBMERGED_HEIGHT - hR) * clamp(sub, 0, 1);
+  // bird flock (PiP show tile): wide and a little low, looking up at the rider + the flock climbing to ~30 m
+  if (style === 'flock') return { az: 72, el: 6, fov: 62, back: 0, lookUp: FLOCK_LOOK_UP, hR: FLOCK_HEIGHT };
   if (style === 'tube') return { az: 26, el: 5, fov: 46 + 2 * g, back: 0.12, lookUp: 0.3 * g, hR };
   if (animal) return { az: 50, el: 9, fov: 44 + 2 * g, back: 0.12, lookUp: 0.15 * g, hR };
   return { az: 48, el: 11, fov: 40 + 3 * g, back: 0.15, lookUp: 0.25 * g, hR };
@@ -115,7 +121,8 @@ export class FollowCam {
     const d = distanceFor(f.hR, f.fov, o.sizeMin);
 
     // constraint solve for the desired offset (every solveEvery steps, and on the first step)
-    if (riding && (this.n % o.solveEvery === 0 || !this.init)) {
+    // (not riding on the first step, e.g. an enter / flock tile: solved once, then the offset stays frozen)
+    if ((riding && this.n % o.solveEvery === 0) || !this.init) {
       let best = null;
       for (let i = 0; i <= 8; i++) {
         const az = Math.min(88, f.az + 8 * i) * RAD, el = Math.min(45, f.el + SUBMERGED_EL * this.sub + 4 * i) * RAD;
@@ -145,10 +152,10 @@ export class FollowCam {
 
     // look-at: behind the rider (down the line toward the pocket), a little up the face
     const kl = k(o.tauLook);
-    const back = riding ? f.back * d : 0;
+    const back = riding ? f.back * d : 0, flock = ctx.style === 'flock';
     // (an animal under water: aim at the surface above it, not down into the water)
     const py = Number.isFinite(wr) ? Math.max(P.y, wr - 0.1) : P.y;
-    const lx = P.x, ly = py + (riding ? f.lookUp : 0.3), lz = P.z - this.sigma * back;
+    const lx = P.x, ly = py + (riding || flock ? f.lookUp : 0.3), lz = P.z - this.sigma * back;
     this.look.x += (lx - this.look.x) * kl; this.look.y += (ly - this.look.y) * kl; this.look.z += (lz - this.look.z) * kl;
 
     // camera position: lifted out of the water / sheet if the smoothed pose ended up there
@@ -166,7 +173,7 @@ export class FollowCam {
     {
       const ry = (Number.isFinite(wr) ? Math.max(P.y, wr - 0.2) : P.y) + 0.45 * f.hR;
       const rx = P.x - cx, rz = P.z - cz, rh = Math.hypot(rx, rz);
-      if (rh > 0.5) {
+      if (rh > 0.5 && !flock) {
         const vf = (this.fov * RAD) / 2, hf = Math.atan(Math.tan(vf) * o.aspect);
         let dyaw = Math.atan2(-rx, -rz) - yaw;
         dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));

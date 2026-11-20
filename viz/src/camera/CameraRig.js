@@ -21,7 +21,7 @@ import { DEFAULT_PRESET, presetFor, nextPreset, widePose } from './wide.js';
 import { FollowCam } from './followCam.js';
 import { createPipState, pipStep, pipLayout, PIP_DEFAULTS } from './pipPolicy.js';
 import { FakeRides } from './fakeRide.js';
-import { PushIn } from './push.js';
+import { PushIn, calmFrom } from './push.js';
 
 const query = () => (typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams());
 const STYLE_LABEL = { cruise: 'cruising', carve: 'carving', tube: 'in the tube', porpoise: 'porpoising', breach: 'breaching' };
@@ -165,7 +165,8 @@ export class CameraRig {
     this.cams = new Map();
     this._seen = new WeakSet();
     this._since = new Map();          // riderId → take-off time of the current ride
-    this.push = new PushIn();         // lineup push-in toward the active break
+    this.push = new PushIn();         // lineup push-in toward the active break (calmed while riders enter / leave)
+    this._flocks = [];                // recent riders 'flock' events (calm the push-in)
     this.fake?.reset();
     this.pip = { active: false, riderId: null, rect: null, alpha: 0, startedAt: null, tiles: [] };
   }
@@ -208,7 +209,6 @@ export class CameraRig {
   step(t, dt = DT) {
     const app = this.app;
     this.fake?.step(t, dt, app.swell);
-    this.push.step(t, dt, app.swell?.fronts);
     const evs = [];
     for (const src of [app.riders?.events, this.fake?.events]) {
       if (!Array.isArray(src)) continue;
@@ -222,7 +222,10 @@ export class CameraRig {
     for (const ev of evs) {
       if (ev.type === 'takeoff') this._since.set(ev.riderId, ev.t ?? t);
       else if (ev.type === 'rideEnd') this._since.delete(ev.riderId);
+      else if (ev.type === 'flock' && ev.pos) this._flocks.push({ t: ev.t ?? t, riderId: ev.riderId, pos: { ...ev.pos } });
     }
+    this._flocks = this._flocks.filter((f) => t - f.t <= 10);
+    this.push.step(t, dt, app.swell?.fronts, calmFrom(t, this._riderLists(), this._flocks));
     const ongoing = [];
     for (const l of this._riderLists()) {
       for (const r of l) {
@@ -250,7 +253,8 @@ export class CameraRig {
         const u = Number.isFinite(r.u) ? r.u : zToU(r.pos.z);
         crestX = field.sampleFront(front, u, SIGMA_CREST, t).x;
       }
-      const style = r.tube ? 'tube' : r.style === 'tube' ? 'carve' : r.style;   // tube framing only while inside
+      // tube framing only while inside; a flock show tile frames the rider + the birds climbing above it
+      const style = tile.show === 'flock' && !RIDING.has(r.state) ? 'flock' : r.tube ? 'tube' : r.style === 'tube' ? 'carve' : r.style;
       fc.step(dt, { pos: r.pos, fwd: r.fwd, kind: r.kind, style, state: r.state, H: zb ? zb.H : 1.5, dir: zb ? zb.dir : 0,
         surface, blocked, crestX });
     }
@@ -342,7 +346,8 @@ export class CameraRig {
 
   _labelText(tile) {
     const rd = this.rider(tile.riderId);
-    const name = rd?.name ?? `rider ${tile.riderId}`, style = riderLabel(rd);
+    const name = rd?.name ?? `rider ${tile.riderId}`;
+    const style = tile.show === 'flock' && !RIDING.has(rd?.state) ? 'flock!' : riderLabel(rd);
     return style ? `${name} · ${style}` : name;
   }
 
@@ -350,7 +355,7 @@ export class CameraRig {
     const L = this.label;
     if (!L.canvas) return;
     const rd = this.rider(tile.riderId);
-    const uw = L.set(this._labelText(tile), rd?.tube || tile.barrel ? '#5ff0e0' : '#ffc65a');
+    const uw = L.set(this._labelText(tile), rd?.tube || tile.barrel ? '#5ff0e0' : tile.show === 'flock' ? '#ffe9a8' : '#ffc65a');
     const r = app.renderer, pr = r.getPixelRatio();
     const lh = Math.max(14, Math.round(h * 0.085)), lw = Math.min(w - 16, Math.round(lh * (L.canvas.width / L.canvas.height) * uw));
     const m = Math.round(lh * 0.45), lx = x + m, ly = y + h - m - lh;

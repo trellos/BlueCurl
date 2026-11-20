@@ -12,11 +12,20 @@
 //                              LOWER priority that is not barrelling (a surfer's ride beats a porpoising dolphin).
 //   cfg.minHeight            → takeoff/barrel events whose ride (ZoneBreak H, via heightOf(ev)) is smaller are ignored.
 //   cfg.enabled = false      → every tile animates out.  cfg.maxConcurrent = N tiles (stacked away from the corner).
+//   enter    (cfg.onEnter)   → a lower-priority "show" tile follows the rider joining the water for cfg.enterHold s
+//   flock    (cfg.onFlock)   → a show tile frames the rider + its bursting bird flock for cfg.flockHold s
+//                              Show tiles only take a FREE slot or replace a show tile of lower rank (enter < flock)
+//                              or of the same rank that has been up ≥ SHOW_MIN s;
+//                              they never interrupt a ride tile (riding or holding). Any ride (takeoff, barrel, or a
+//                              ride still going) replaces a show tile in place; a show event for a rider whose ride
+//                              tile is holding turns it into a show tile; a takeoff by a rider on a show tile turns
+//                              it back into a ride tile (same key, the follow cam continues).
 //   ongoing                  → rides still in progress ([{ riderId, frontId, zi, tube, since }]): when a slot is free
 //                              after the events, the best one not on screen is picked up (barrel first, then the
 //                              earliest take-off), subject to the same trigger switches and minHeight.
 //
-// Tile { key, slot, riderId, frontId, zi, startedAt, endAt (null while riding), barrel, cut }
+// Tile { key, slot, riderId, frontId, zi, startedAt, endAt (null while riding), barrel, cut, prio, show }
+//   show  null for a ride tile, 'enter' | 'flock' for a show tile (endAt set from the start)
 //   key   unique per tile (a switch gives the slot a new key → the follow cam restarts)
 //   cut   the tile replaced another one in place (no slide-in; the replaced tile is not drawn while leaving)
 // state.leaving keeps removed tiles for PIP_ANIM s so they can animate out.
@@ -26,7 +35,13 @@ export const PIP_MARGIN = 0.022;          // margin to the screen edge, fraction
 export const PIP_GAP = 0.018;             // gap between stacked tiles, fraction of the screen height
 
 export const PIP_DEFAULTS = { enabled: true, onTakeoff: true, onBarrel: true, minHeight: 0.3, maxConcurrent: 1,
-  holdAfterRide: 1.5, size: 1 / 3, corner: 'bottom-right' };
+  holdAfterRide: 1.5, size: 1 / 3, corner: 'bottom-right',
+  onEnter: true, onFlock: true, enterHold: 3.5, flockHold: 3.0 };
+
+/** Show-tile rank (higher replaces lower); ride tiles outrank every show tile. */
+export const SHOW_RANK = { enter: 1, flock: 2 };
+/** s a show tile is kept before a newer show of the same rank may replace it (a newer entry / flock is more current). */
+export const SHOW_MIN = 1.5;
 
 export function createPipState() { return { tiles: [], leaving: [], serial: 0 }; }
 
@@ -46,7 +61,7 @@ export function pipStep(prev, events, t, pipCfg = {}, heightOf = () => null, ong
   };
   const add = (ev, slot, cut = false) => {
     const tile = { key: ++s.serial, slot, riderId: ev.riderId, frontId: ev.frontId ?? null, zi: ev.zi ?? -1,
-      startedAt: t, endAt: null, barrel: ev.type === 'barrel', cut, prio: priorityOf(ev) || 0 };
+      startedAt: t, endAt: null, barrel: ev.type === 'barrel', cut, prio: priorityOf(ev) || 0, show: null };
     s.tiles.push(tile);
     return tile;
   };
@@ -62,6 +77,29 @@ export function pipStep(prev, events, t, pipCfg = {}, heightOf = () => null, ong
       if (own && own.endAt == null) own.endAt = (ev.t ?? t) + Math.max(0, Number(c.holdAfterRide) || 0);
       continue;
     }
+    if (ev.type === 'enter' || ev.type === 'flock') {
+      if (maxN === 0 || !(ev.type === 'enter' ? c.onEnter : c.onFlock)) continue;
+      const kind = ev.type, endAt = t + Math.max(0, Number(kind === 'enter' ? c.enterHold : c.flockHold) || 0);
+      if (own) {                                     // a riding tile keeps its ride; a holding / show tile turns into this show
+        if (own.endAt == null) continue;
+        if (own.show && SHOW_RANK[own.show] > SHOW_RANK[kind]) continue;
+        if (own.show !== kind) { own.key = ++s.serial; own.cut = true; own.startedAt = t; }   // new framing → new follow cam
+        own.show = kind; own.endAt = endAt; own.barrel = false; own.prio = 0;
+        continue;
+      }
+      let slot = s.tiles.length < maxN ? lowestFreeSlot(s.tiles) : -1, cut = false;
+      if (slot < 0) {
+        const victim = s.tiles.filter((x) => x.show && (SHOW_RANK[x.show] < SHOW_RANK[kind]
+            || (SHOW_RANK[x.show] === SHOW_RANK[kind] && t - x.startedAt >= SHOW_MIN - 1e-9)))
+          .sort((a, b) => SHOW_RANK[a.show] - SHOW_RANK[b.show] || a.startedAt - b.startedAt || a.key - b.key)[0];
+        if (!victim) continue;
+        slot = victim.slot; cut = true;
+        remove(victim, true);
+      }
+      const tile = add(ev, slot, cut);
+      tile.show = kind; tile.endAt = endAt; tile.barrel = false; tile.prio = 0;
+      continue;
+    }
     if (ev.type !== 'takeoff' && ev.type !== 'barrel') continue;
     if (maxN === 0) continue;
     if (ev.type === 'takeoff' && !c.onTakeoff) continue;
@@ -70,6 +108,7 @@ export function pipStep(prev, events, t, pipCfg = {}, heightOf = () => null, ong
     if (H != null && Number.isFinite(H) && H < c.minHeight) continue;
 
     if (own) {                                       // already on screen: a new ride or a barrel within the ride
+      own.show = null; own.prio = priorityOf(ev) || 0;
       if (ev.type === 'takeoff') { own.endAt = null; own.barrel = false; own.frontId = ev.frontId ?? own.frontId; own.zi = ev.zi ?? own.zi; }
       else { own.barrel = true; own.endAt = null; }
       continue;
@@ -92,8 +131,10 @@ export function pipStep(prev, events, t, pipCfg = {}, heightOf = () => null, ong
     add(ev, slot, true);
   }
 
-  // free slots: pick up a ride that is still going (e.g. skipped while the slot was busy)
-  if (maxN > 0 && s.tiles.length < maxN && ongoing && ongoing.length) {
+  // free slots (or show tiles): pick up a ride that is still going (e.g. skipped while the slot was busy)
+  const showVictim = () => s.tiles.filter((x) => x.show)
+    .sort((a, b) => SHOW_RANK[a.show] - SHOW_RANK[b.show] || a.startedAt - b.startedAt || a.key - b.key)[0];
+  if (maxN > 0 && (s.tiles.length < maxN || showVictim()) && ongoing && ongoing.length) {
     const cands = ongoing.filter((r) => r && r.riderId != null && !s.tiles.some((x) => x.riderId === r.riderId)
       && !s.leaving.some((x) => x.riderId === r.riderId && x.leftAt === t)
       && (r.tube ? (c.onBarrel || c.onTakeoff) : c.onTakeoff)
@@ -101,8 +142,10 @@ export function pipStep(prev, events, t, pipCfg = {}, heightOf = () => null, ong
       .sort((a, b) => (b.tube ? 1 : 0) - (a.tube ? 1 : 0) || (priorityOf(b) || 0) - (priorityOf(a) || 0)
         || (a.since ?? 0) - (b.since ?? 0) || a.riderId - b.riderId);
     for (const r of cands) {
-      if (s.tiles.length >= maxN) break;
-      add({ type: r.tube ? 'barrel' : 'takeoff', riderId: r.riderId, frontId: r.frontId, zi: r.zi }, lowestFreeSlot(s.tiles));
+      let slot = -1, cut = false;
+      if (s.tiles.length < maxN) slot = lowestFreeSlot(s.tiles);
+      else { const v = showVictim(); if (!v) break; slot = v.slot; cut = true; remove(v, true); }
+      add({ type: r.tube ? 'barrel' : 'takeoff', riderId: r.riderId, frontId: r.frontId, zi: r.zi }, slot, cut);
     }
   }
   return s;
@@ -114,7 +157,7 @@ const easeOut = (p) => 1 - Math.pow(1 - p, 3);
 /**
  * Tile rectangles at time t (pure function of state, t). aspect = screen width / height.
  * Returns [{ key, slot, riderId, rect: {x,y,w,h} normalized (origin TOP-LEFT, y down), alpha 0..1, phase, startedAt,
- *   barrel, leaving }], drawing order (leaving first). rect may extend past the screen edge while sliding.
+ *   barrel, show, leaving }], drawing order (leaving first). rect may extend past the screen edge while sliding.
  */
 export function pipLayout(state, t, pipCfg = {}, aspect = 16 / 9) {
   const c = { ...PIP_DEFAULTS, ...(pipCfg || {}) };
@@ -133,7 +176,7 @@ export function pipLayout(state, t, pipCfg = {}, aspect = 16 / 9) {
     const r = base(tile.slot), e = easeOut(clamp01(p));
     r.x += (right ? 1 : -1) * (1 - e) * (w + mx);
     out.push({ key: tile.key, slot: tile.slot, riderId: tile.riderId, rect: r, alpha: e, phase,
-      startedAt: tile.startedAt, barrel: !!tile.barrel, leaving });
+      startedAt: tile.startedAt, barrel: !!tile.barrel, show: tile.show || null, leaving });
   };
   for (const tile of state.leaving) {
     if (tile.hidden) continue;

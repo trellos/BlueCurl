@@ -7,6 +7,9 @@
 //   - the focus is the biggest active break (ZoneBreak H); it may only change ZONE when fully pushed out (p = 0),
 //     so the camera never whips between zones; a later break in the same zone extends the focus (its centre is
 //     eased over with τ PUSH.tauCentre);
+//   - calm (M2): while any rider is ENTER-ing / LEAVE-ing or a bird flock is live (PUSH.flockSec after its event),
+//     the push is limited to PUSH.calmAmt of itself (eased with the same linear ramp + S-curve), so the riders
+//     joining / leaving at the inside and the point stay in the wide frame; the focus logic is unchanged;
 //   - cfg.cameraPush (0..1) scales the blend at render time (0 = static); only the 'lineup' preset pushes.
 import { ZONES, uToZ, FRONT_W } from '../contracts.js';
 import { depthAt } from '../spot/bathymetry.js';
@@ -23,6 +26,8 @@ export const PUSH = {
   dir: [-94, 30, 39],
   clear: 14,
   shoreward: 6,            // m, the frame centre sits this far shoreward of the zone line (where the curl lands)
+  calmAmt: 0.2,            // push kept while riders enter / leave or a flock is live (fraction)
+  flockSec: 3.0,           // s a flock event keeps the push calm
 };
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -43,12 +48,23 @@ export function breakCentre(zb) {
   return { x: zn.lineX - PUSH.shoreward, y: 0, z: uToZ(u) };
 }
 
+/** True while any rider is ENTER-ing / LEAVE-ing or a flock event is younger than PUSH.flockSec (calm input). */
+export function calmFrom(t, riderLists, flocks) {
+  for (const l of riderLists || []) for (const r of l || []) if (r && (r.state === 'ENTER' || r.state === 'LEAVE')) return true;
+  return (flocks || []).some((f) => f && f.t <= t + 1e-9 && t - f.t <= PUSH.flockSec);
+}
+
 export class PushIn {
   constructor() { this.reset(); }
-  reset() { this.p = 0; this.goal = 0; this.focus = null; this.c = null; }
+  reset() { this.p = 0; this.goal = 0; this.focus = null; this.c = null; this.calm = 0; }
 
-  /** One fixed step: fronts = swell.fronts (committed breaks live in front.breaks). */
-  step(t, dt, fronts) {
+  /**
+   * One fixed step: fronts = swell.fronts (committed breaks live in front.breaks); busy = some rider is ENTER-ing
+   * or LEAVE-ing or a flock is live (see calmFrom) → the push eases down to PUSH.calmAmt.
+   */
+  step(t, dt, fronts, busy = false) {
+    const cs = dt / PUSH.rampSec;
+    this.calm = busy ? Math.min(1, this.calm + cs) : Math.max(0, this.calm - cs);
     const act = [];
     for (const f of fronts || []) for (const zb of f.breaks || []) {
       const until = breakUntil(zb);
@@ -74,8 +90,8 @@ export class PushIn {
     if (this.p <= 0 && this.goal <= 0) this.focus = null;
   }
 
-  /** S-curve blend weight 0..1. */
-  weight() { return smoothstep(this.p); }
+  /** S-curve blend weight 0..1 (incl. the calm limit). */
+  weight() { return smoothstep(this.p) * (1 - (1 - PUSH.calmAmt) * smoothstep(this.calm)); }
 
   /** Blend `base` ({position, target, fov}) toward the focus framing by amount · weight(); returns a new pose. */
   apply(base, amount = 1) {
@@ -95,5 +111,5 @@ export class PushIn {
     };
   }
 
-  snapshot() { return JSON.parse(JSON.stringify({ p: this.p, goal: this.goal, c: this.c, focus: this.focus && { frontId: this.focus.frontId, zi: this.focus.zi, until: this.focus.until } })); }
+  snapshot() { return JSON.parse(JSON.stringify({ p: this.p, goal: this.goal, c: this.c, calm: this.calm, focus: this.focus && { frontId: this.focus.frontId, zi: this.focus.zi, until: this.focus.until } })); }
 }
