@@ -12,3 +12,4 @@
 - breakStartTime sections: was a discontinuous staircase (mesh tears, per WP4a); now smooth monotone `s − 0.75·sin(ws)/w`. Remaining discontinuities (peel end, zone edges) are hidden by the sim tapering H there.
 - Known: in the bay, set fronts are ~20 m apart but a profile is ~40 m wide → WP4b clips each mesh at the midpoint to its neighbours.
 - Known (WP3): a column still re-forming from an outer break (tau≈1.5) can start its point break immediately, so tau jumps 1.5→0 (possible pop). Rare; check in integration stills.
+- WP5 landed (83c5d5f). To check in integration: white flat blotches near the point at t=22 (shallow water blowout or fx sprites?); fx washed out in the sun-glitter column; replay not pixel-identical (suspected FFT ocean state, see WP8).
