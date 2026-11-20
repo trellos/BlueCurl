@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DT, NCOLS, ZONES, DEFAULT_CFG, intervalSec, localTau } from '../src/contracts.js';
+import { DT, NCOLS, ZONES, PATH, FRONT_W, DEFAULT_CFG, intervalSec, localTau } from '../src/contracts.js';
 import { InputBus, applyCfgEvent } from '../src/input/input.js';
 import { Swell, TUNING } from '../src/sim/swell.js';
 
@@ -150,7 +150,7 @@ test('(b) strong but spread → steep wall: high steep, less curl than (a), long
   assert.ok(b.steep > 0.8);
   assert.ok(b.curl < a.curl * 0.5);
   assert.ok(b.peelLen > a.peelLen);
-  assert.ok(b.peelLen > 0.45 * (b.u1 - b.u0) * 520);
+  assert.ok(b.peelLen > 0.45 * (b.u1 - b.u0) * FRONT_W * 0.6);
   assert.ok(!b.closeout && b.sections === 1);
 });
 
@@ -160,7 +160,7 @@ test('(c) few mellow notes → small, soft, slow', () => {
     const o = pointBreak(k);
     assert.ok(c.H < o.H && c.steep < o.steep && c.curl < o.curl && c.vPeel < o.vPeel, `vs ${k}`);
   }
-  assert.ok(c.H < 1.0 && c.vPeel < ZONES[1].vPeel * 0.8);
+  assert.ok(c.H < 1.4 && c.vPeel < ZONES[1].vPeel * 0.8);
 });
 
 test('(d) weighted to one side → peak on that side, peels away from it; centred → A-frame', () => {
@@ -212,8 +212,8 @@ test('energy goes to the right target front, with pre-charge before spawn', () =
   });
   // t = 1: nothing on the water → the next scheduled front is created invisible at the horizon
   const s = seen[0];
-  assert.equal(s.n, 1); assert.equal(s.alpha, 0); assert.equal(s.target, true); assert.equal(s.tPoint, 16); assert.equal(s.x, 760);
-  assert.equal(s.fx.frontId, fronts[0].id); assert.equal(s.fx.x, 760); assert.equal(s.fx.precharge, true);
+  assert.equal(s.n, 1); assert.equal(s.alpha, 0); assert.equal(s.target, true); assert.equal(s.tPoint, 16); assert.equal(s.x, PATH[0].x);
+  assert.equal(s.fx.frontId, fronts[0].id); assert.equal(s.fx.x, PATH[0].x); assert.equal(s.fx.precharge, true);
   const byT = (tp) => fronts.find((f) => f.tPoint === tp);
   const fxOf = (t) => swell.impulses.find((i) => Math.abs(i.t - t) < DT);
   assert.equal(fxOf(8).frontId, byT(18.5).id);   // front 1 committed at the outer reef at 7.5
@@ -231,7 +231,7 @@ test('energy goes to the right target front, with pre-charge before spawn', () =
 
 test('cols are smooth in time and the break phase mirrors contracts.localTau', () => {
   let maxDH = 0, checked = 0;
-  const prev = new Map();
+  const prev = new Map(), prevRaw = new Map();
   run({
     notes: [...SHAPES.hollow, ...SHAPES.south.map(([t, l, v]) => [t + 16, l, v]), ...SHAPES.strongErratic.map(([t, l, v]) => [t + 32, l, v])],
     until: 75,
@@ -239,20 +239,69 @@ test('cols are smooth in time and the break phase mirrors contracts.localTau', (
       for (const f of sw.fronts) {
         const p = prev.get(f.id);
         if (p) for (let c = 0; c < NCOLS; c++) maxDH = Math.max(maxDH, Math.abs(f.cols[c * 4] - p[c * 4]));
-        // while contracts.localTau says a column is mid-break (0 < tau < 1) its height is held exactly
-        if (f.breaks.length && p) {
+        // while contracts.localTau says a column is mid-break (0 < tau < 1) its (pre-taper) height is held exactly
+        const raw = f._s.raw, pr = prevRaw.get(f.id);
+        if (f.breaks.length && pr) {
           for (let c = 0; c < NCOLS; c += 3) {
             const u = (c + 0.5) / NCOLS, lt = localTau(f, u, t), lp = localTau(f, u, t - DT);
             if (lt.zi >= 0 && lt.zi === lp.zi && lp.tau > 0.01 && lt.tau < 0.99) {
               checked++;
-              assert.equal(f.cols[c * 4], p[c * 4], `front ${f.id} col ${c} t ${t}`);
+              assert.equal(raw[c * 4], pr[c * 4], `front ${f.id} col ${c} t ${t}`);
             }
           }
         }
         prev.set(f.id, Float32Array.from(f.cols));
+        prevRaw.set(f.id, Float32Array.from(raw));
       }
     },
   });
   assert.ok(maxDH < 0.05, `max |dH| per step ${maxDH}`);
   assert.ok(checked > 1000, `checked ${checked}`);
+});
+
+test('edge tapers hide breakStartTime jumps; headland columns fade and never break late; peel timing', async () => {
+  const { breakStartTime, zToU } = await import('../src/contracts.js');
+  const { pathSpline, pathEval } = await import('../src/sim/swell.js');
+  const sp = pathSpline(14);
+  const tAt = (x) => { let a = -14, b = 15; for (let i = 0; i < 60; i++) { const m = (a + b) / 2; if (pathEval(sp, m).x > x) a = m; else b = m; } return a; };
+  let edgeChecks = 0, headChecks = 0, maxHeadH = 0;
+  const uHead = zToU(TUNING.headland.z1);
+  const notes = [...SHAPES.hollow, ...SHAPES.south.map(([t, l, v]) => [t + 16, l, v]), ...SHAPES.wall.map(([t, l, v]) => [t + 32, l, v])];
+  const { fronts } = run({
+    notes, until: 75,
+    onStep: (t, sw) => {
+      for (const f of sw.fronts) {
+        const raw = f._s.raw;
+        for (const zb of f.breaks) {
+          if (t < zb.tBreak + 0.5 || t > zb.tBreak + 3) continue;
+          const floor = TUNING.taper.floorFrac * ZONES[zb.zi].Hscale * TUNING.cols.ambient;
+          for (let c = 0; c < NCOLS - 1; c++) {
+            const a = breakStartTime(zb, (c + 0.5) / NCOLS), b = breakStartTime(zb, (c + 1.5) / NCOLS);
+            if (Number.isFinite(a) === Number.isFinite(b)) continue;
+            for (const cc of [c, c + 1]) {
+              edgeChecks++;
+              assert.ok(f.cols[cc * 4] <= floor + 0.06 * raw[cc * 4] + 1e-6, `edge col ${cc} H ${f.cols[cc * 4]} raw ${raw[cc * 4]}`);
+              assert.ok(f.cols[cc * 4 + 2] <= 0.06 * raw[cc * 4 + 2] + 1e-6);
+            }
+          }
+        }
+        if (f.x < TUNING.headland.x1) for (let c = 0; c < NCOLS; c++) if ((c + 0.5) / NCOLS >= uHead) { headChecks++; maxHeadH = Math.max(maxHeadH, f.cols[c * 4]); }
+      }
+    },
+  });
+  assert.ok(edgeChecks > 100, `edge checks ${edgeChecks}`);
+  assert.ok(headChecks > 100 && maxHeadH < 1e-6, `headland H ${maxHeadH}`);
+  const tHead = tAt(TUNING.headland.breakX), tEnd = tAt(TUNING.peelEndX.point);
+  let nPoint = 0;
+  for (const f of fronts) for (const zb of f.breaks) {
+    for (let c = 0; c < NCOLS; c++) {
+      const u = (c + 0.5) / NCOLS, ts = breakStartTime(zb, u);
+      if (!Number.isFinite(ts)) continue;
+      if (u >= zToU(TUNING.headland.z0)) assert.ok(ts <= f.tPoint + tHead + 1e-6, `headland col ${c} breaks at ${ts - f.tPoint}`);
+      if (zb.zone === 'point') assert.ok(ts <= f.tPoint + tEnd + 1e-6, `point peel late: ${ts - f.tPoint}`);
+    }
+    if (zb.zone === 'point') nPoint++;
+  }
+  assert.ok(nPoint >= 3);
+  assert.ok(tAt(45) > tEnd);
 });

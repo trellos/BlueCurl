@@ -4,7 +4,7 @@
 // are the input target, and freeze one ZoneBreak per zone `commitLead` seconds before the crest reaches the zone
 // line. Everything is a deterministic function of (cfg, input log): no Math.random, no clocks.
 import {
-  DT, STEP_TOL, NCOLS, FRONT_W, ZONES, PATH, intervalSec, uToZ, laneToU, hash01, breakStartTime,
+  DT, STEP_TOL, NCOLS, FRONT_W, ZONES, PATH, intervalSec, uToZ, zToU, laneToU, hash01, breakStartTime,
 } from '../contracts.js';
 
 // ===================================================================================== TUNING
@@ -30,8 +30,9 @@ export const TUNING = {
   // curl = zoneCurl · sN · (base + conc·conc) · (p0 + p1·power) · (1 − mush·mush)
   curl: { base: 0.15, conc: 0.85, p0: 0.35, p1: 0.65, mush: 0.9 },
   zoneCurl: { outer: 1.15, point: 1.0, inside: 0.6 },
-  // A-frame when the centroid is within ±aframe of the zone centre; peelBias shifts ambiguous (spread) input
-  dir: { aframe: 0.08, bias: 0.06 },
+  // A-frame when the centroid is within ±aframe of the zone centre; peelBias shifts ambiguous (spread) input by
+  // bias·spN² (a spread wall at the point peels south, away from the headland, instead of a short A-frame)
+  dir: { aframe: 0.08, bias: 0.12 },
   // vPeel = zone.vPeel · (v0 + v1·steep)
   vPeel: { v0: 0.6, v1: 0.8 },
   // peelLen = available length ahead of the peak · clamp(base + spread·spN + steep·steep − mush·mush) · zonePeel
@@ -42,6 +43,16 @@ export const TUNING = {
   sections: { score2: 0.28, score3: 0.55, mushW: 0.5, mushAt: 0.6 }, // score = er + mushW·max(0, mush − mushAt)
   closeout: { erratic: 0.4, strength: 0.45, power: 0.45 },          // erratic AND strong AND big
   barrel: { k: 0.55, pow: 1.5 },              // barrelTime = k · curl^pow · peelLen / vPeel   (s in the tube)
+  // Peel timing: every column of a zone starts breaking before the crest passes endX (world x). With the default
+  // PATH the crest is at x 50 about 7 s after tPoint, so the point peel is capped at vPeel·7 s (≈ 55–80 m).
+  peelEndX: { outer: 120, point: 50, inside: 4 },
+  // Headland: columns north of z0…z1 run into the cliff once x < 66. They fade out as the crest goes x0 → x1, and
+  // no peel (or back crumble) reaches them after the crest passes breakX.
+  headland: { z0: 30, z1: 42, x0: 80, x1: 66, breakX: 70 },
+  // Hide breakStartTime jumps (peel end, backLen end, zone edges): within `band` m of such an edge, published H eases
+  // toward floorFrac·(zone swell height) and steep/curl toward plain swell, while the zone is active
+  // (ramps in from commit to tBreak, out over fadeOut s after the last column has re-formed).
+  taper: { band: 10, floorFrac: 0.5, fadeOut: 1.5 },
   // per-column swell lumps
   cols: {
     shoal0: 0.45,          // fraction of the potential height at the horizon (shoals to 1.0 at the zone line)
@@ -80,6 +91,13 @@ const MEMBER = ZONES.map((z) => {
   }
   return m;
 });
+
+/** Headland membership per column (0 south of z0, 1 north of z1). */
+const HEAD = (() => {
+  const m = new Float32Array(NCOLS), { z0, z1 } = TUNING.headland;
+  for (let c = 0; c < NCOLS; c++) m[c] = smooth(clamp01((uToZ(colU(c)) - z0) / (z1 - z0)));
+  return m;
+})();
 
 /** Effective set size: the set must fit inside the interval. */
 export function effectiveSetSize(cfg, I = intervalSec(cfg)) {
@@ -188,8 +206,11 @@ function cv(a) {
   return Math.sqrt(q / a.length) / m;
 }
 
-/** Map zone statistics to wave parameters (everything in a ZoneBreak except timing). */
-export function mapZone(st, zi) {
+/**
+ * Map zone statistics to wave parameters (everything in a ZoneBreak except tBreak). `lim` = { tEnd, tHead }: seconds
+ * from tBreak until the crest passes TUNING.peelEndX / TUNING.headland.breakX; caps peelLen/backLen (omit = no caps).
+ */
+export function mapZone(st, zi, lim = null) {
   const z = ZONES[zi], T = TUNING;
   const power = 1 - Math.exp(-st.E / T.H.E0);
   const H = z.Hscale * (T.H.base + T.H.gain * power);
@@ -203,15 +224,24 @@ export function mapZone(st, zi) {
   // peak + direction
   const width = z.u1 - z.u0;
   const uPeak = clamp(st.centroid, z.u0 + 0.03 * width, z.u1 - 0.03 * width);
-  const d = (uPeak - z.u0) / width - 0.5 - T.dir.bias * z.peelBias * spN;
+  const d = (uPeak - z.u0) / width - 0.5 - T.dir.bias * z.peelBias * spN * spN;
   const dir = Math.abs(d) <= T.dir.aframe ? 0 : d > 0 ? -1 : 1;     // peel away from the heavy side
   const vPeel = z.vPeel * (T.vPeel.v0 + T.vPeel.v1 * steep);
   const left = (uPeak - z.u0) * FRONT_W, right = (z.u1 - uPeak) * FRONT_W;
   const ahead = dir > 0 ? right : dir < 0 ? left : Math.max(left, right);
   const behind = dir > 0 ? left : dir < 0 ? right : 0;
   const peelFrac = clamp(T.peel.base + T.peel.spread * spN + T.peel.steep * steep - T.peel.mush * mush, T.peel.min, 1) * (T.zonePeel[z.key] ?? 1);
-  const peelLen = Math.max(T.peel.minLen, ahead * peelFrac);
-  const backLen = behind * clamp01(T.back.base + T.back.mush * mush);
+  let peelLen = Math.max(T.peel.minLen, ahead * peelFrac);
+  let backLen = behind * clamp01(T.back.base + T.back.mush * mush);
+  if (lim) {
+    const vBack = 0.5 * vPeel;
+    peelLen = Math.min(peelLen, Math.max(T.peel.minLen, vPeel * lim.tEnd));
+    backLen = Math.min(backLen, vBack * lim.tEnd);
+    // the north side must not reach the headland after the crest passes breakX
+    const sHead = Math.max(0, (zToU(T.headland.z0) - uPeak) * FRONT_W);
+    if (dir >= 0) peelLen = Math.min(peelLen, Math.max(sHead, T.peel.minLen, vPeel * lim.tHead));
+    else backLen = Math.min(backLen, Math.max(sHead, vBack * lim.tHead));
+  }
   const Tb = z.Tb * (1 + T.Tb.mush * mush - T.Tb.curl * curl);
   const closeout = er >= T.closeout.erratic && sN >= T.closeout.strength && power >= T.closeout.power;
   const score = er + T.sections.mushW * Math.max(0, mush - T.sections.mushAt);
@@ -296,10 +326,16 @@ export class Swell {
   _timing(p) {
     const sp = pathSpline(p.travel);
     const tLine = ZONES.map((z) => p.tPoint + pathTimeAt(sp, z.lineX));
-    return { sp, tLine, tShore: p.tPoint + sp.ts[sp.ts.length - 1] };
+    const tHeadX = pathTimeAt(sp, TUNING.headland.breakX);
+    const lim = ZONES.map((z, zi) => ({
+      tEnd: Math.max(0.5, pathTimeAt(sp, TUNING.peelEndX[z.key] ?? 0) - (tLine[zi] - p.tPoint)),
+      tHead: Math.max(0, tHeadX - (tLine[zi] - p.tPoint)),
+    }));
+    return { sp, tLine, lim, tShore: p.tPoint + sp.ts[sp.ts.length - 1] };
   }
   _retime(f, p) {
-    const { sp, tLine, tShore } = this._timing(p);
+    const { sp, tLine, tShore, lim } = this._timing(p);
+    f._s.lim = lim;
     Object.assign(f, { set: p.set, k: p.k, tSpawn: p.tPoint - p.travel, tPoint: p.tPoint, travel: p.travel, tLine, tShore });
     f._s.sp = sp;
     f._s.tCommit0 = tLine[0] - this.cfg.commitLead;
@@ -307,7 +343,7 @@ export class Swell {
   }
 
   _createFront(p, t) {
-    const id = this._nextId++, { sp, tLine, tShore } = this._timing(p);
+    const id = this._nextId++, { sp, tLine, tShore, lim } = this._timing(p);
     const f = {
       id, set: p.set, k: p.k, tSpawn: p.tPoint - p.travel, tPoint: p.tPoint,
       x: sp.xs[0], vx: 0, alpha: 0,
@@ -318,7 +354,7 @@ export class Swell {
     Object.defineProperty(f, '_s', {
       enumerable: false, writable: true,
       value: {
-        sp, spawned: false, tCommit0: tLine[0] - this.cfg.commitLead,
+        sp, lim, spawned: false, raw: new Float32Array(NCOLS * 4), tk: [null, null, null], tw: [null, null, null], tCommit0: tLine[0] - this.cfg.commitLead,
         committed: [false, false, false], prof: [null, null, null], bst: [null, null, null], zb: [null, null, null],
         broke: [false, false, false], live: [null, null, null], imps: [], init: false,
         zp: new Int8Array(NCOLS), rel: new Uint8Array(NCOLS).fill(1), t0: new Float64Array(NCOLS).fill(p.tPoint - p.travel),
@@ -406,7 +442,7 @@ export class Swell {
     }
 
     // 6. columns
-    for (const f of this.fronts) this._updateCols(f, t, dt);
+    for (const f of this.fronts) { this._updateCols(f, t, dt); this._publish(f, t); }
 
     // 7. deaths
     for (let i = this.fronts.length - 1; i >= 0; i--) {
@@ -475,7 +511,7 @@ export class Swell {
     const L = s.live[zi];
     if (L && L.t === t) return L;
     const st = zoneStats(f, zi, t, this.cfg.energyHalfLife);
-    const p = mapZone(st, zi);
+    const p = mapZone(st, zi, s.lim[zi]);
     const prof = zoneProfile(f, zi, p, L ? L.prof : new Float32Array(NCOLS * 4));
     s.live[zi] = { t, st, p, prof };
     return s.live[zi];
@@ -503,6 +539,7 @@ export class Swell {
       bst = new Float64Array(NCOLS);
       for (let c = 0; c < NCOLS; c++) bst[c] = breakStartTime(zb, colU(c));
       s.bst[zi] = bst;
+      this._taper(f, zi, zb, bst, t);
       this._emit(t, 'commit', f.id, z.key);
     }
     // what breaks keeps `retain` of its energy, what passes through in range loses 10 %
@@ -510,9 +547,54 @@ export class Swell {
     for (let c = c0; c <= c1; c++) f.energy[c] *= bst && Number.isFinite(bst[c]) ? z.retain : TUNING.unbrokenLoss;
   }
 
+  /** Edge taper of a committed break: k[c] = 0 at a finite/Infinity edge of breakStartTime → 1 at `band` m away. */
+  _taper(f, zi, zb, bst, t) {
+    const T = TUNING.taper, s = f._s, k = new Float32Array(NCOLS).fill(1), edges = [];
+    let tEnd = zb.tBreak;
+    for (let c = 0; c < NCOLS; c++) {
+      if (Number.isFinite(bst[c])) tEnd = Math.max(tEnd, bst[c]);
+      if (c < NCOLS - 1 && Number.isFinite(bst[c]) !== Number.isFinite(bst[c + 1])) edges.push((c + 1) / NCOLS);
+    }
+    for (let c = 0; c < NCOLS; c++) {
+      let d = Infinity;
+      for (const ue of edges) d = Math.min(d, Math.abs(colU(c) - ue) * FRONT_W);
+      k[c] = smooth(clamp01(d / T.band));
+    }
+    tEnd += 2 * zb.Tb;
+    s.tk[zi] = k;
+    s.tw[zi] = [t, Math.max(t + DT, zb.tBreak), tEnd, tEnd + T.fadeOut];
+  }
+
+  /** Publish cols = raw lumps with the edge and headland tapers applied (both smooth in time). */
+  _publish(f, t) {
+    const s = f._s, raw = s.raw, cols = f.cols, C = TUNING.cols, Hd = TUNING.headland, T = TUNING.taper;
+    const aw = [0, 0, 0];
+    for (let zi = 0; zi < ZONES.length; zi++) {
+      const w = s.tw[zi];
+      if (!w) continue;
+      aw[zi] = t <= w[0] ? 0 : t < w[1] ? smooth((t - w[0]) / (w[1] - w[0])) : t < w[2] ? 1 : t < w[3] ? 1 - smooth((t - w[2]) / (w[3] - w[2])) : 0;
+    }
+    const hx = smooth(clamp01((Hd.x0 - f.x) / (Hd.x0 - Hd.x1)));
+    for (let c = 0; c < NCOLS; c++) {
+      const i4 = c * 4;
+      let H = raw[i4], st = raw[i4 + 1], cu = raw[i4 + 2];
+      for (let zi = 0; zi < ZONES.length; zi++) {
+        if (!aw[zi]) continue;
+        const K = 1 - aw[zi] * (1 - s.tk[zi][c]);
+        if (K >= 1) continue;
+        const floor = T.floorFrac * ZONES[zi].Hscale * C.ambient;
+        if (H > floor) H = floor + (H - floor) * K;
+        st = C.steep0 + (st - C.steep0) * K;
+        cu *= K;
+      }
+      const kh = 1 - HEAD[c] * hx;
+      cols[i4] = H * kh; cols[i4 + 1] = st; cols[i4 + 2] = cu * kh; cols[i4 + 3] = raw[i4 + 3];
+    }
+  }
+
   // ------------------------------------------------------------------- columns
   _updateCols(f, t, dt) {
-    const s = f._s, C = TUNING.cols, cols = f.cols, tol = STEP_TOL / 2;
+    const s = f._s, C = TUNING.cols, cols = s.raw, tol = STEP_TOL / 2;
     const a = s.init ? 1 - Math.exp(-dt / C.smoothTau) : 1;
     s.init = true;
     for (let c = 0; c < NCOLS; c++) {
