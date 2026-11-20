@@ -16,8 +16,11 @@ uniform float uThreshold;
 uniform float uFirst;
 in vec2 vUv;
 vec3 pre(vec3 c) {
+  // guard: a NaN/Inf/negative pixel must never bloom (D3D's min() maps NaN to the other operand -> 250 -> a white
+  // flash); then clamp the HDR input so a sun disc cannot flood the frame
+  if (any(isnan(c)) || any(isinf(c))) c = vec3(0.0);
+  c = clamp(c, vec3(0.0), vec3(250.0));
   if (uFirst < 0.5) return c;
-  c = min(c, vec3(250.0));                       // (keeps a sun disc from flooding the frame)
   float br = max(c.r, max(c.g, c.b));
   float knee = uThreshold * 0.6;
   float soft = clamp(br - uThreshold + knee, 0.0, 2.0 * knee);
@@ -101,8 +104,21 @@ vec3 toSRGB(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
 }
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+bool bad(vec3 c) { return any(isnan(c)) || any(isinf(c)); }
 void main() {
   vec3 hdr = texture(uHDR, vUv).rgb;
+  if (bad(hdr)) {
+    // a non-finite scene pixel: replace it with the mean of its finite neighbours (never black / white dots)
+    vec2 px = 1.0 / vec2(textureSize(uHDR, 0));
+    vec3 acc = vec3(0.0); float n = 0.0;
+    for (int i = 0; i < 8; i++) {
+      vec2 o = vec2(float(i % 3) - 1.0, float(i / 3) - 1.0); if (i >= 4) o = vec2(float((i + 1) % 3) - 1.0, float((i + 1) / 3) - 1.0);
+      vec3 q = texture(uHDR, vUv + o * px).rgb;
+      if (!bad(q)) { acc += q; n += 1.0; }
+    }
+    hdr = n > 0.0 ? acc / n : vec3(0.0);
+  }
+  hdr = clamp(hdr, vec3(0.0), vec3(65000.0));
   vec3 bloom = texture(uB0, vUv).rgb * uBloomW.x + texture(uB1, vUv).rgb * uBloomW.y
              + texture(uB2, vUv).rgb * uBloomW.z + texture(uB3, vUv).rgb * uBloomW.w;
   vec3 c = (hdr + bloom * uBloom) * uExposure * uWhite;

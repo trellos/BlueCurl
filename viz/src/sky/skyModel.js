@@ -43,10 +43,11 @@ uniform float uTime;
 
 // Clear-sky radiance in direction d (no clouds, no sun disc): what the water reflects.
 vec3 bcSkyBase(vec3 d) {
-  float h = max(d.y, 0.0);
+  float h = clamp(d.y, 0.0, 1.0);                          // (reflected rays can be a hair longer than 1: asin(>1) = NaN)
+  float elDeg = degrees(asin(h));
   vec2 hd = d.xz / max(length(d.xz), 1e-5);
   vec2 hs = uSunDir.xz / max(length(uSunDir.xz), 1e-5);
-  float side = 0.5 + 0.5 * dot(hd, hs);                    // 1 toward the sun's azimuth, 0 away
+  float side = clamp(0.5 + 0.5 * dot(hd, hs), 0.0, 1.0);  // 1 toward the sun's azimuth, 0 away (clamped: pow(<0) = NaN on D3D)
   float g = acos(clamp(dot(d, uSunDir), -1.0, 1.0));       // angle to the sun (rad)
   // horizon band: hot gold-orange under the sun, through coral to dusty magenta / lilac behind
   vec3 hzSun  = vec3(3.10, 1.05, 0.20);
@@ -62,9 +63,10 @@ vec3 bcSkyBase(vec3 d) {
   // Mie aureole around the low sun (forward-peaked aerosol scattering)
   c += uSunColor * (0.55 * exp(-g / 0.03) + 0.20 * exp(-g / 0.11) + 0.07 * exp(-g / 0.40));
   // slight darkening just above the horizon away from the sun (Earth's shadow / Belt of Venus)
-  float belt = exp(-pow((degrees(asin(h)) - 3.0) / 3.0, 2.0)) * (1.0 - side);
+  float bq = (elDeg - 3.0) / 3.0, pq = (elDeg - 8.0) / 5.0;
+  float belt = exp(-bq * bq) * (1.0 - side);
   c *= 1.0 - 0.25 * belt;
-  c += vec3(0.20, 0.08, 0.14) * exp(-pow((degrees(asin(h)) - 8.0) / 5.0, 2.0)) * (1.0 - side);   // pink band above it
+  c += vec3(0.20, 0.08, 0.14) * exp(-pq * pq) * (1.0 - side);   // pink band above it
   return c * uSkyTune.x;
 }
 
@@ -105,7 +107,7 @@ vec4 bcClouds(vec3 d) {
   float g = acos(clamp(dot(d, uSunDir), -1.0, 1.0));
   // undersides: lit by the sun from below the deck -> hot pink-gold toward the sun, violet behind
   vec2 hd = d.xz / max(length(d.xz), 1e-5), hs = uSunDir.xz / max(length(uSunDir.xz), 1e-5);
-  float side = 0.5 + 0.5 * dot(hd, hs);
+  float side = clamp(0.5 + 0.5 * dot(hd, hs), 0.0, 1.0);
   vec3 under = mix(vec3(0.075, 0.035, 0.10), vec3(0.95, 0.26, 0.12), pow(side, 2.5));
   under = mix(under, vec3(0.55, 0.16, 0.28), 0.35 * smoothstep(0.08, 0.3, d.y) * (1.0 - side));  // magenta high decks
   // gold lining: thin edges close to the sun glow (forward scattering through thin cloud)

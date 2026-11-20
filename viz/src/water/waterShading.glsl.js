@@ -182,13 +182,13 @@ vec4 bcRoughReflection(vec3 N, vec3 V, float sigV, float sigS) {
     if (mu <= 0.0) continue;
     float g = exp(-min((s * s - s0 * s0) * iv, 60.0));
     float w = g * mu / max(dot(n, N), 1e-3);
-    vec3 r = reflect(-V, n);
+    vec3 r = normalize(reflect(-V, n));
     float F = bcFresnelWater(mu);
     float G = bcSmithG1(r.y / max(length(r.xz), 1e-4), sigS);
     acc += w * F * mix(bcSeaBelow(), bcSkyRefl(r), G);
     fAcc += w * F; wAcc += w;
   }
-  if (wAcc < 1e-12) { vec3 r = reflect(-V, N); return vec4(bcSkyRefl(r), bcFresnelWater(max(dot(N, V), 0.0))); }
+  if (wAcc < 1e-12) { vec3 r = normalize(reflect(-V, N)); return vec4(bcSkyRefl(r), bcFresnelWater(max(dot(N, V), 0.0))); }
   return vec4(acc / wAcc, fAcc / wAcc);
 }
 
