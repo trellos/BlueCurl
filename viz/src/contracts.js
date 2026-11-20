@@ -234,6 +234,9 @@ float bcAmbient(vec2 xz, float t) {
  *   exitT (planned ASHORE time while LEAVE-ing, else null). A turn-round leave goes back the same way over the elapsed
  *   entry time. step(t, dt, swell) without a beat = everyone in the water (old test suites). LINEUP → RETURN can
  *   happen (riders idle 40–55 s move to their other zone).
+ * Entry/exit distance = TRAVEL_V[kind] (Riders.js: surfer 2.8, dolphin 7, seal 4, turtle 3 m/s) × duration: surfers start
+ *   from the nearest beach/rocks if within 1.35× that distance, else that far toward the shore (fading in on the water);
+ *   animals surface/dive that far out to sea.
  * Extra RideEvent types: 'enter' | 'arrive' | 'leave' | 'gone' | 'flock' (all five carry pos:{x,y,z}).
  *   'flock' { t, riderId, pos:{x,y,z} }: the beat level changed (up or down) on the very downbeat this rider
  *   arrived at the lineup (arrival measure index = enter measure index + entryMeasures) → Fx releases a bird flock.
