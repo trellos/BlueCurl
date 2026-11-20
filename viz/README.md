@@ -15,7 +15,7 @@ Add `?demo=demo/demo-basic.json` to the URL to play the scripted demo (~92 s, fi
 Click or press any key once so the browser allows audio (the beat).
 
 ### Guitar
-Press **G** to start listening on the microphone (or open with `?guitar=1`); `?guitar=mock` plays a scripted phrase instead. Lanes 1–8 = one octave of the current key (starts C major, octave C3–C4 = low E fret 8). Non-diatonic notes do nothing. A tonic above/below the octave moves the octave; any other note sets the octave it is in. A three-note chord that is not in the key switches the key (C → Cm switches, C → Dm does not). The HUD shows key, octave and the last note → lane. Tip: headphones or a DI keep the beat out of the guitar mic.
+The app asks for guitar input on load: it opens the microphone straight away, or (if the browser wants a gesture first) shows a prompt and opens it on your first click or key. **G** toggles it; `?guitar=0` skips the ask; `?guitar=mock` plays a scripted phrase instead. While the mic is on, a pluck from the number keys is not re-detected as a guitar note (same pitch class within 0.7 s). Lanes 1–8 = one octave of the current key (starts C major, octave C3–C4 = low E fret 8). Non-diatonic notes do nothing. A tonic above/below the octave moves the octave; any other note sets the octave it is in. A three-note chord that is not in the key switches the key (C → Cm switches, C → Dm does not). The HUD shows key, octave and the last note → lane. Tip: headphones or a DI keep the beat out of the guitar mic.
 
 ### Beat
 4/4 at the HUD tempo. Each measure the level moves one step toward the number of notes played in the previous measure (0–1 = metronome, 8+ = full). Each step up brings one more rider out (4 measures to reach the lineup); each step down sends the last one in. Change the level on exactly the downbeat a rider reaches the lineup and a flock of birds bursts out of them.
@@ -23,7 +23,7 @@ Press **G** to start listening on the microphone (or open with `?guitar=1`); `?g
 ## Keys
 | key | action |
 |---|---|
-| 1–8 | note impulse on lanes 1–8 (left → right = south → north). Shift = soft note |
+| 1–8 | note impulse on lanes 1–8 (left → right = south → north) + a plucky synth note at that scale step in the guitar's current key/octave. Shift = soft note |
 | G | guitar microphone on/off (Tuninator) |
 | M | beat mute |
 | I | cycle the interval (2 / 8 / 16 bars = 4 / 16 / 32 s at 120 bpm) |

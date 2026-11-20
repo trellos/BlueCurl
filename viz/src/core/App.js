@@ -16,6 +16,7 @@ import { Riders } from '../riders/Riders.js';
 import { Beat } from '../beat/beat.js';
 import { BeatAudio } from '../beat/BeatAudio.js';
 import { GuitarInput } from '../input/guitar.js';
+import { Pluck } from '../audio/Pluck.js';
 import { Spot } from '../spot/Spot.js';
 import { WaveMesh } from '../wave/WaveMesh.js';
 import { Fx } from '../fx/Fx.js';
@@ -125,6 +126,7 @@ export class App {
     this.cameraRig = new CameraRig(this);
     this.beatAudio = new BeatAudio(this);          // output only (live loop); never feeds the sim
     this.guitarInput = new GuitarInput(this);      // sets app.guitar; mic starts on a user gesture
+    this.pluck = new Pluck(this);                  // keys 1–8 sound a pluck in the guitar's key/octave (output only)
     this.visuals = [this.spot, this.waveMesh, this.fx, this.riderViews];
     // every system, in step order; reset() is called on each that has it whenever the sim is rewound (+ beatAudio)
     this.systems = [this.swell, this.beat, this.riders, this.spot, this.waveMesh, this.fx, this.riderViews, this.cameraRig];

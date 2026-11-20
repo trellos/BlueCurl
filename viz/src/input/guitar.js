@@ -129,9 +129,10 @@ export class GuitarInput {
     attach();
     queueMicrotask(attach);
     setTimeout(attach, 0);
-    // ?guitar=1 | mock: start once the app has booted (window.__ready is set right after the App is constructed;
-    // starting earlier would bunch the mock's wall-clock notes up behind shader compilation)
-    if (want && want !== '0' && want !== 'false' && !app.capture) {
+    // Guitar input is asked for by default (?guitar=0 turns that off, ?guitar=mock plays the scripted phrase): start
+    // once the app has booted (window.__ready is set right after the App is constructed; starting earlier would bunch
+    // the mock's wall-clock notes up behind shader compilation). Without a user gesture yet, a prompt asks for a click.
+    if (want !== '0' && want !== 'false' && !app.capture) {
       setTimeout(() => Promise.resolve(window.__ready).catch(() => {}).then(() => this.start({ deferToGesture: true })), 0);
     }
   }
@@ -165,11 +166,13 @@ export class GuitarInput {
     const midi = note.pitch?.current?.midi;
     if (!rec.pitched && Number.isFinite(midi)) {
       rec.pitched = true;
+      if (this._isEcho(midi)) { rec.echo = true; return fired; }    // the mic heard our own pluck
       const lane = this.mapper.note(midi);
       if (lane != null) this._fire(rec, lane, vel, note.pitch.current.name || midiName(midi), fired);
       else this._syncKey();
     }
     // 2) harmony bloom → chord lanes (+ maybe a key change)
+    if (rec.echo) return fired;
     const h = note.harmony;
     const pitches = h?.detectedPitches;
     if (pitches && pitches.length >= 2 && (type === 'noteStarted' || HARMONY_CHANGES.has(change?.type))) {
@@ -323,6 +326,7 @@ export class GuitarInput {
   _armGesture() {
     if (this._gesture || typeof document === 'undefined') return;
     this._set('off', 'click or press a key to start the guitar mic');
+    this._showPrompt();
     const fire = (e) => {
       this._clearGesture();
       if (e?.type === 'keydown' && e.code === 'KeyG') return;   // the G handler starts it
@@ -333,7 +337,36 @@ export class GuitarInput {
     document.addEventListener('keydown', fire, o);
     this._gesture = () => { document.removeEventListener('pointerdown', fire, o); document.removeEventListener('keydown', fire, o); };
   }
-  _clearGesture() { if (this._gesture) { this._gesture(); this._gesture = null; } }
+  _clearGesture() { if (this._gesture) { this._gesture(); this._gesture = null; } this._hidePrompt(); }
+
+  /** On-screen ask while waiting for the gesture the browser needs before it opens the mic. */
+  _showPrompt() {
+    if (this._prompt || typeof document === 'undefined' || !document.body) return;
+    const el = document.createElement('div');
+    el.className = 'bc-guitar-prompt';
+    el.textContent = '🎸 Click or press any key to turn on guitar input (G toggles · ?guitar=0 to skip)';
+    Object.assign(el.style, {
+      position: 'fixed', left: '50%', bottom: '24px', transform: 'translateX(-50%)', zIndex: 20,
+      padding: '10px 18px', borderRadius: '999px', font: '600 15px system-ui, sans-serif', color: '#fff7e8',
+      background: 'rgba(20, 30, 40, 0.72)', boxShadow: '0 2px 12px rgba(0,0,0,0.35)', pointerEvents: 'none',
+    });
+    document.body.appendChild(el);
+    this._prompt = el;
+  }
+  _hidePrompt() { if (this._prompt) { this._prompt.remove(); this._prompt = null; } }
+
+  /** A pluck (number key) the speakers just played: ignore the mic hearing it as a guitar note (same pitch class). */
+  suppressEcho(midi, sec = 0.7) {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    (this._echo ||= []).push({ pc: ((midi % 12) + 12) % 12, until: now + sec * 1000 });
+    if (this._echo.length > 32) this._echo.shift();
+  }
+  _isEcho(midi) {
+    if (this.source !== 'mic' || !this._echo?.length) return false;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now(), pc = ((midi % 12) + 12) % 12;
+    this._echo = this._echo.filter((e) => e.until > now);
+    return this._echo.some((e) => e.pc === pc);
+  }
 
   dispose() {
     if (typeof window !== 'undefined' && this._onKey) window.removeEventListener('keydown', this._onKey);
