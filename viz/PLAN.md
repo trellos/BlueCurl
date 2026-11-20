@@ -42,3 +42,7 @@ Interfaces: contracts.js sections "guitar input", "beat", "riders" (presence), "
 | 12b | Rider views: Noa (surfer) + Honu (turtle) models, enter/leave animation, hidden ASHORE | src/riders/RiderViews.js, src/riders/models/* | 12a contract | stills of turtle + surfer in wide and PiP | done (d1caadb) |
 | 13 | Note splash + birds (per note, circling then away) + flock bursts | src/fx/* | contracts | keypress → massive splash + bird next frame; flock still | done (6a250b1) |
 Orchestrator: contracts, App/main wiring, demo-guitar script, docs, integration stills, review.
+
+### Status after milestone 2 (2026-11-20)
+All M2 packages + one review/fix round landed (shader prewarm, entry speeds, splash placement, PiP on enter/flock). 166/166 tests.
+Known / next: real guitar + mic untested (mock, recorded Tuninator streams and the harness pass); beat audio unheard by us (patterns verified by hit counts); the beat can bleed into a guitar mic (use headphones/DI); surfers fade in on the water ~22 m from their spot (shore too far for 4 measures); a dolphin entering is mostly under water in its PiP; swell set grid vs beat bar clock can drift apart after a live bpm change; boot now spends ~4 s compiling every shader up front.

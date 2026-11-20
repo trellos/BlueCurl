@@ -55,4 +55,10 @@ Captures are resumable (they restart from the first unfinished segment) and byte
 - `south-peak-t66.jpg`, `closeout-t82.jpg`: the one-sided set and the erratic close-out set.
 - `demo-basic-720p.mp4`: the full scripted demo (92 s). The 1080p original is produced by the capture command above.
 
+## Milestone 2 media
+- `m2-note-splash-t15.jpg`: one note → a splash erupting in the lineup, its bird climbing out.
+- `m2-rider-entering-t5.jpg`: the beat rose, Pudge swims in (PiP).
+- `m2-flock-pip-t12.jpg`: the level changed on the downbeat Pudge reached the lineup → a flock bursts out (PiP).
+- `m2-demo-beat-720p.mp4`: demo-beat (56 s, silent: captures have no audio): level 1→8→1, riders join and leave, flocks at 10/12/14 s.
+
 Performance: median GPU 6.9 ms per frame at 1920×1080 with every system on, at the busiest moment of the demo (RTX 5050 laptop, timer queries).
