@@ -5,7 +5,8 @@
 //   events = input.drainUntil(t) → cfg events applied to app.cfg → swell.step(t, DT, events) → beat.step(t, DT, events)
 //   → riders.step(t, DT, swell, beat) → fx.step(t, DT) → cameraRig.step(t, DT)
 // Per rendered frame (t = simTime):
-//   ocean FFT(t) → spot/waveMesh/fx/riderViews.update(t) → cameraRig.render(app) → hud.update
+//   updateSun(t) (day cycle: app.sun, shared sky/water uniforms, sun light + shadow, env map, post grade)
+//   → ocean FFT(t) → spot/waveMesh/fx/riderViews.update(t) → cameraRig.render(app) → hud.update
 import * as THREE from 'three';
 import { DT } from '../contracts.js';
 import { FixedClock } from './clock.js';
@@ -23,7 +24,9 @@ import { Fx } from '../fx/Fx.js';
 import { RiderViews } from '../riders/RiderViews.js';
 import { CameraRig } from '../camera/CameraRig.js';
 import { Sky } from '../sky/Sky.js';
-import { SUN_COLOR } from '../sky/skyModel.js';
+import { applySun } from '../sky/skyModel.js';
+import { dayPhase, sunAt } from '../sky/dayCycle.js';
+import { setRiderRim } from '../riders/models/common.js';
 import { Ocean } from '../water/Ocean.js';
 import { createWaterUniforms } from '../water/waterShading.glsl.js';
 import { Post } from '../post/Post.js';
@@ -53,6 +56,9 @@ export function getPath(obj, key) {
 }
 
 export class App {
+  /** Sun shadow box (see _setupSunShadow): focus (world), radius (m), map size, light distance, caster reach. */
+  static SHADOW = { focus: [70, 0, -15], radius: 190, mapSize: 4096, dist: 1000, reach: 450 };
+
   /**
    * opts: { canvas, cfg, capture, width, height (fixed drawing-buffer size, else window), pixelRatio, hud }
    */
@@ -94,12 +100,19 @@ export class App {
     const a = this.cfg.ambient;
     this.waterUniforms.uAmbient.value.set(a.amp, a.period, a.amp2, a.period2);
 
+    // day cycle state (contracts "day cycle"); filled by updateSun() once per rendered frame
+    this.sun = { phase: 0, elevationDeg: 0, azimuthDeg: 0, dir: this.sunDir, color: new THREE.Color(), intensity: 0,
+      ambient: new THREE.Color(), state: null };
+    this.dayGrade = { exposure: 1, saturation: 1 };   // shared by every Post (main + PiP)
+
     this.sky = new Sky(this.waterUniforms);
     this.scene.add(this.sky.mesh);
-    this.envMap = this.sky.buildEnvMap(renderer);
+    const ph0 = dayPhase(null, 0, this.cfg);
+    this.sky.updateEnv(renderer, ph0);
+    this.envMap = this.sky.envMap;                     // same texture object on every (quantised) rebuild
     this.scene.environment = this.envMap;
 
-    this.sunLight = new THREE.DirectionalLight(new THREE.Color().setRGB(...SUN_COLOR, THREE.LinearSRGBColorSpace), 1.0);
+    this.sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
     this.sunLight.position.copy(this.sunDir).multiplyScalar(1000);
     this.sunLight.target.position.set(0, 0, 0);
     this.scene.add(this.sunLight, this.sunLight.target);
@@ -109,7 +122,7 @@ export class App {
 
     // ---------------------------------------------------------------- post
     const buf = this._bufferSize();
-    this.createPost = (pw, ph) => new Post(renderer, pw, ph);
+    this.createPost = (pw, ph) => new Post(renderer, pw, ph, {}, this.dayGrade);
     this.post = this.createPost(buf.x, buf.y);
 
     // ---------------------------------------------------------------- sim + systems
@@ -128,6 +141,8 @@ export class App {
     this.guitarInput = new GuitarInput(this);      // sets app.guitar; mic starts on a user gesture
     this.pluck = new Pluck(this);                  // keys 1–8 sound a pluck in the guitar's key/octave (output only)
     this.visuals = [this.spot, this.waveMesh, this.fx, this.riderViews];
+    this._setupSunShadow();
+    this.updateSun(0);
     // every system, in step order; reset() is called on each that has it whenever the sim is rewound (+ beatAudio)
     this.systems = [this.swell, this.beat, this.riders, this.spot, this.waveMesh, this.fx, this.riderViews, this.cameraRig];
 
@@ -230,9 +245,74 @@ export class App {
     return this.simTime;
   }
 
+  // ---------------------------------------------------------------- day cycle (WP14)
+  /**
+   * Sun shadow: one 4096² map over a fixed-radius disc around the visible spot (lineup view: headland, stacks, point
+   * shelf, bay beach), re-aimed every frame along the sun; the ortho box keeps a constant size and its centre is
+   * snapped to the shadow texel grid (no crawling edges while the sun moves). Caster range reaches SHADOW.reach m
+   * toward the sun (jungle hills / headland at grazing sun).
+   */
+  _setupSunShadow() {
+    const L = this.sunLight, S = App.SHADOW;
+    L.castShadow = true;
+    L.shadow.mapSize.set(S.mapSize, S.mapSize);
+    L.shadow.map?.dispose(); L.shadow.map = null;
+    const c = L.shadow.camera;
+    c.left = -S.radius; c.right = S.radius; c.top = S.radius; c.bottom = -S.radius;
+    c.near = S.dist - S.reach; c.far = S.dist + S.radius + 60;
+    c.updateProjectionMatrix();
+    L.shadow.bias = -0.0003;
+    L.shadow.normalBias = 0.35;
+    L.shadow.autoUpdate = true;
+    this._shX = new THREE.Vector3(); this._shY = new THREE.Vector3(); this._shF = new THREE.Vector3();
+  }
+
+  /** Day phase + every sun-driven quantity for sim time t (pure function of beat state, t and cfg). */
+  updateSun(t = this.simTime) {
+    const phase = dayPhase(this.beat, t, this.cfg);
+    const s = sunAt(phase);
+    const sun = this.sun;
+    applySun(this.waterUniforms, s);                  // sunDir (shared object), sun colour, sky, water deep colour
+    sun.state = s; sun.phase = s.phase; sun.elevationDeg = s.elevationDeg; sun.azimuthDeg = s.azimuthDeg;
+    sun.intensity = s.intensity;
+    sun.color.setRGB(s.color[0], s.color[1], s.color[2], THREE.LinearSRGBColorSpace);
+    sun.ambient.setRGB(s.ambient[0], s.ambient[1], s.ambient[2], THREE.LinearSRGBColorSpace);
+    // environment map: quantised phase step only
+    if (this.sky.updateEnv(this.renderer, phase)) this.scene.environment = this.envMap = this.sky.envMap;
+    // sun light (three: irradiance = color · intensity; Lambert albedo/π, same as the water's uSunColor)
+    const L = this.sunLight;
+    L.color.copy(sun.color);
+    L.intensity = s.intensity;
+    this._aimShadow(s);
+    // post grade, rider rim
+    this.dayGrade.exposure = s.exposure;
+    this.dayGrade.saturation = s.saturation;
+    setRiderRim(s);
+    return sun;
+  }
+
+  _aimShadow(s) {
+    const L = this.sunLight, S = App.SHADOW, d = this.sunDir;
+    L.shadow.intensity = s.shadow;
+    L.shadow.autoUpdate = s.shadow > 0.001 && s.intensity > 0.001;   // no shadow pass while the sun is down
+    if (!L.shadow.autoUpdate) return;
+    // light-space basis exactly as the shadow camera's lookAt(target) builds it (z toward the light, up = +Y)
+    const X = this._shX.set(0, 1, 0).cross(d).normalize();
+    const Y = this._shY.copy(d).cross(X);
+    const F = this._shF.set(...S.focus);
+    const texel = (2 * S.radius) / S.mapSize;
+    const fx = F.dot(X), fy = F.dot(Y);
+    F.addScaledVector(X, Math.round(fx / texel) * texel - fx).addScaledVector(Y, Math.round(fy / texel) * texel - fy);
+    L.target.position.copy(F);
+    L.position.copy(F).addScaledVector(d, S.dist);
+    L.target.updateMatrixWorld();
+    L.updateMatrixWorld();
+  }
+
   // ---------------------------------------------------------------- rendering
   render() {
     const t = this.simTime;
+    this.updateSun(t);
     this.waterUniforms.uTime.value = t;
     this.ocean.update(this.renderer, t);
     this.sky.update(t);

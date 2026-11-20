@@ -44,6 +44,9 @@ function createBushes(records, rimU) {
   return { group, tris };
 }
 
+const RIM_DAWN = new THREE.Color(0xffb46a);
+const _c = new THREE.Color();
+
 export class Spot {
   constructor(app) {
     this.app = app;
@@ -87,13 +90,15 @@ export class Spot {
     sun.shadow.mapSize.set(4096, 2048);
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 0.6;
-    sun.shadow.autoUpdate = false;             // the spot is static: render the shadow map once
+    sun.shadow.autoUpdate = false;             // standalone: static sun, render the shadow map once
+    // (in the app, App._setupSunShadow / _aimShadow (WP14 day cycle) replace this box and re-aim it every frame)
     sun.shadow.needsUpdate = true;
     this.sun = sun;
     if (ownSun) this.group.add(sun, sun.target);
     // cool sky fill keeps greens and shadowed faces readable against the very warm, grazing dawn sun
     this.hemi = scene.environment ? new THREE.HemisphereLight(0xbcd6ff, 0x7a6a48, 0.75)
       : new THREE.HemisphereLight(0xa9c4e8, 0x6b5a3e, 1.15);
+    this.hemiBase = this.hemi.intensity;
     this.group.add(this.hemi);
     if (app.renderer && !app.renderer.shadowMap.enabled) {
       app.renderer.shadowMap.enabled = true;
@@ -102,7 +107,20 @@ export class Spot {
     scene.add(this.group);
   }
 
-  update(t) { this.palms.update(t); }
+  update(t) {
+    this.palms.update(t);
+    // day cycle (WP14): rim light follows the sun (shared direction, colour whitening by day, gone at twilight),
+    // the cool sky fill scales with the sky ambient
+    const s = this.app.sun && this.app.sun.state;
+    if (s) {
+      this.rimU.uSunDir.value.copy(this.app.sunDir);
+      const k = Math.min(1, Math.max(0, (s.elevationDeg - 8) / 30));
+      this.rimU.uRimColor.value.copy(RIM_DAWN).lerp(_c.setRGB(s.color[0], s.color[1], s.color[2]), k * k * (3 - 2 * k));
+      this.rimU.uRimStrength.value = s.rim;
+      const a = s.ambient, ambK = (0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2]) / 0.2664;
+      this.hemi.intensity = this.hemiBase * ambK;
+    }
+  }
 
   dispose() {
     this.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });

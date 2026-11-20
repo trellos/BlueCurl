@@ -149,9 +149,14 @@ export const DEFAULT_POST_PARAMS = {
 };
 
 export class Post {
-  constructor(renderer, w, h, params = {}) {
+  /**
+   * grade (optional, shared by every Post of the app): { exposure, saturation } multipliers on params, set per frame
+   * by the day cycle (App.updateSun) so the main view and the PiP grade alike.
+   */
+  constructor(renderer, w, h, params = {}, grade = null) {
     this.renderer = renderer;
     this.params = { ...DEFAULT_POST_PARAMS, ...params };
+    this.grade = grade;
     this.pDown = new FullscreenPass(makeShader(DOWN, { uSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 1 }, uFirst: { value: 0 } }));
     this.pBlur = new FullscreenPass(makeShader(BLUR, { uSrc: { value: null }, uStep: { value: new THREE.Vector2() }, uW: { value: new THREE.Vector3(1, 0, 0) } }));
     this.pGrade = new FullscreenPass(makeShader(GRADE, {
@@ -212,8 +217,9 @@ export class Post {
     gu.uB0.value = this.levels[0].a.texture; gu.uB1.value = this.levels[1].a.texture;
     gu.uB2.value = this.levels[2].a.texture; gu.uB3.value = this.levels[3].a.texture;
     gu.uBloomW.value.set(...P.bloomWeights); gu.uBloom.value = P.bloom;
-    gu.uExposure.value = P.exposure; gu.uWhite.value.set(...P.white);
-    gu.uSaturation.value = P.saturation; gu.uVibrance.value = P.vibrance; gu.uContrast.value = P.contrast;
+    const G = this.grade;
+    gu.uExposure.value = P.exposure * (G ? G.exposure : 1); gu.uWhite.value.set(...P.white);
+    gu.uSaturation.value = P.saturation * (G ? G.saturation : 1); gu.uVibrance.value = P.vibrance; gu.uContrast.value = P.contrast;
     gu.uLook.value = P.look; gu.uTonemap.value = P.tonemap === 'aces' ? 1 : P.tonemap === 'none' ? 2 : 0;
 
     if (viewport) {

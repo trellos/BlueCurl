@@ -306,7 +306,7 @@ void main() {
     float phF = 0.3 + 0.7 * wvHG(cosS, 0.35) / wvHG(1.0, 0.35);
     // white foam: cool sky-lit white on the shadow side, warm sun only on the lit highlights and the backlit glow
     vec3 sunW = mix(vec3(sunL), uSunColor, 0.45);                    // warm, not orange
-    vec3 coolW = vec3(0.80, 0.88, 0.98) * (0.85 + 0.25 * Nf.y);
+    vec3 coolW = vec3(0.80, 0.88, 0.98) * (0.85 + 0.25 * Nf.y) * bcAmbK();   // sky-lit (tuned at dawn ambient)
     vec3 fcol = coolW * uWvLook.w + sunW * 0.42 * lit * lit + sunW * uWvLook.z * phF * (0.35 + 0.65 * lit);
     fcol *= fshade * (1.0 + lipLine);
     col = mix(col, fcol, fc);

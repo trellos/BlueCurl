@@ -1,5 +1,6 @@
-// Dawn-patrol sky model: one analytic GLSL function shared by the sky dome, the water's reflections,
-// the aerial haze and the environment map, so every surface sees the same sky.
+// Sky model: one analytic GLSL function shared by the sky dome, the water's reflections, the aerial haze and
+// the environment map, so every surface sees the same sky. WP14: every colour is a uniform driven by the day
+// cycle (src/sky/dayCycle.js sunAt -> applySun); the 6 deg key there is the original dawn look.
 //
 // Structure (sun lobe / aureole terms, sky reflection used by the water) follows ShoreBreak's
 // src/glsl/common.js SKY chunk and src/sky/skyModel.js skyAureole(), Copyright (c) 2026 Christopher
@@ -7,8 +8,12 @@
 // with the sun ~6° up, east-south-east, behind the swell as seen from the headland.
 import * as THREE from 'three';
 
-// Compass azimuth (deg clockwise from north = +Z, east = +X) and elevation of the sun.
-export const SUN = { elevationDeg: 6.0, azimuthDeg: 108.0 };
+import { sunAt } from './dayCycle.js';
+
+// Compass azimuth (deg clockwise from north = +Z, east = +X) and elevation of the sun at the default start phase
+// (0.06 -> 6 deg up, ESE). Initial uniform values only; app.sun (App.updateSun) drives everything per frame.
+const SUN0 = sunAt(0.06);
+export const SUN = { elevationDeg: SUN0.elevationDeg, azimuthDeg: SUN0.azimuthDeg };
 
 /** Unit vector toward the sun (world: +X east, +Y up, +Z north). */
 export function sunDirection(sun = SUN, out = new THREE.Vector3()) {
@@ -17,18 +22,43 @@ export function sunDirection(sun = SUN, out = new THREE.Vector3()) {
 }
 
 // Scene-linear radiometry (exposure 1 → the post maps ~0.18 to mid grey).
-export const SUN_COLOR = [3.6, 1.75, 0.62];      // low sun: red/orange after a long air path
-export const SKY_AMB = [0.30, 0.25, 0.33];       // diffuse sky radiance seen by an up-facing surface
+export const SUN_COLOR = SUN0.color.map((c) => c * SUN0.intensity);   // initial sun irradiance (linear)
+export const SKY_AMB = SUN0.ambient;             // diffuse sky radiance seen by an up-facing surface
 
 export function createSkyUniforms() {
-  return {
+  const u = {
     uSunDir: { value: sunDirection() },
     uSunColor: { value: new THREE.Vector3(...SUN_COLOR) },
+    uSunGlow: { value: new THREE.Vector3() },
     uSkyAmb: { value: new THREE.Vector3(...SKY_AMB) },
+    uSkyZen: { value: new THREE.Vector3() }, uSkyHzSun: { value: new THREE.Vector3() },
+    uSkyHzMid: { value: new THREE.Vector3() }, uSkyHzAnti: { value: new THREE.Vector3() },
+    uSkyMidSun: { value: new THREE.Vector3() }, uSkyMidAnti: { value: new THREE.Vector3() },
+    uCloudSun: { value: new THREE.Vector3() }, uCloudAnti: { value: new THREE.Vector3() }, uCloudHi: { value: new THREE.Vector3() },
+    uSkyMisc: { value: new THREE.Vector4() },   // x Earth-shadow belt + pink band, y aureole gain, z cloud gain
     // x: overall sky gain, y: cloud amount, z: haze e-folding distance (m), w: max haze
     uSkyTune: { value: new THREE.Vector4(1.0, 1.0, 3800.0, 0.7) },
     uTime: { value: 0 },
   };
+  applySun(u, SUN0);
+  return u;
+}
+
+/**
+ * Write a sunAt() state into a sky/water uniform set (any subset of the SKY_GLSL uniforms, plus uDeepColor).
+ * uSunDir's Vector3 is updated in place (it is app.sunDir, shared by many materials).
+ */
+export function applySun(u, s) {
+  const set = (k, a) => { if (u[k]) u[k].value.set(a[0], a[1], a[2]); };
+  if (u.uSunDir) u.uSunDir.value.set(s.dir[0], s.dir[1], s.dir[2]).normalize();
+  if (u.uSunColor) u.uSunColor.value.set(s.color[0] * s.intensity, s.color[1] * s.intensity, s.color[2] * s.intensity);
+  set('uSunGlow', s.glow);
+  set('uSkyAmb', s.ambient);
+  set('uSkyZen', s.sky.zen); set('uSkyHzSun', s.sky.hzSun); set('uSkyHzMid', s.sky.hzMid); set('uSkyHzAnti', s.sky.hzAnti);
+  set('uSkyMidSun', s.sky.midSun); set('uSkyMidAnti', s.sky.midAnti);
+  set('uCloudSun', s.sky.cloudSun); set('uCloudAnti', s.sky.cloudAnti); set('uCloudHi', s.sky.cloudHi);
+  if (u.uSkyMisc) u.uSkyMisc.value.set(s.skyMisc[0], s.skyMisc[1], s.skyMisc[2], s.skyMisc[3]);
+  set('uDeepColor', s.deep);
 }
 
 // Requires nothing but the uniforms below. Guarded so several chunks can include it.
@@ -40,6 +70,13 @@ uniform vec3 uSunColor;   // sun irradiance (Lambert: albedo * uSunColor * NoL /
 uniform vec3 uSkyAmb;     // sky ambient radiance for an up-facing white Lambertian surface
 uniform vec4 uSkyTune;    // x gain, y cloud amount, z haze distance (m), w max haze
 uniform float uTime;
+uniform vec3 uSunGlow;    // sun disc / aureole / cloud lining (outlives the direct light a little below the horizon)
+uniform vec3 uSkyZen, uSkyHzSun, uSkyHzMid, uSkyHzAnti, uSkyMidSun, uSkyMidAnti;
+uniform vec3 uCloudSun, uCloudAnti, uCloudHi;
+uniform vec4 uSkyMisc;    // x belt / pink band, y aureole gain, z cloud gain
+
+// Ambient light relative to the original dawn tuning (constants tuned at dawn scale with this).
+float bcAmbK() { return dot(uSkyAmb, vec3(0.2126, 0.7152, 0.0722)) / 0.2664; }
 
 // Clear-sky radiance in direction d (no clouds, no sun disc): what the water reflects.
 vec3 bcSkyBase(vec3 d) {
@@ -49,24 +86,20 @@ vec3 bcSkyBase(vec3 d) {
   vec2 hs = uSunDir.xz / max(length(uSunDir.xz), 1e-5);
   float side = clamp(0.5 + 0.5 * dot(hd, hs), 0.0, 1.0);  // 1 toward the sun's azimuth, 0 away (clamped: pow(<0) = NaN on D3D)
   float g = acos(clamp(dot(d, uSunDir), -1.0, 1.0));       // angle to the sun (rad)
-  // horizon band: hot gold-orange under the sun, through coral to dusty magenta / lilac behind
-  vec3 hzSun  = vec3(3.10, 1.05, 0.20);
-  vec3 hzMid  = vec3(1.15, 0.36, 0.20);
-  vec3 hzAnti = vec3(0.36, 0.17, 0.30);
+  // horizon band (dawn: hot gold-orange under the sun, through coral to dusty magenta / lilac behind)
   float sideK = smoothstep(0.5, 1.0, side);
-  vec3 hz = mix(mix(hzAnti, hzMid, smoothstep(0.0, 0.65, side)), hzSun, sideK * sideK);
-  // mid sky: amber toward the sun, violet behind; zenith: deep dawn blue
-  vec3 mid = mix(vec3(0.10, 0.07, 0.20), vec3(0.95, 0.36, 0.20), pow(side, 3.0));
-  vec3 zen = vec3(0.022, 0.045, 0.15);
+  vec3 hz = mix(mix(uSkyHzAnti, uSkyHzMid, smoothstep(0.0, 0.65, side)), uSkyHzSun, sideK * sideK);
+  // mid sky (dawn: amber toward the sun, violet behind) and zenith
+  vec3 mid = mix(uSkyMidAnti, uSkyMidSun, pow(side, 3.0));
   vec3 c = mix(hz, mid, 1.0 - exp(-h * 11.0));
-  c = mix(c, zen, 1.0 - exp(-h * 3.0));
-  // Mie aureole around the low sun (forward-peaked aerosol scattering)
-  c += uSunColor * (0.55 * exp(-g / 0.03) + 0.20 * exp(-g / 0.11) + 0.07 * exp(-g / 0.40));
-  // slight darkening just above the horizon away from the sun (Earth's shadow / Belt of Venus)
+  c = mix(c, uSkyZen, 1.0 - exp(-h * 3.0));
+  // Mie aureole around the sun (forward-peaked aerosol scattering)
+  c += uSunGlow * uSkyMisc.y * (0.55 * exp(-g / 0.03) + 0.20 * exp(-g / 0.11) + 0.07 * exp(-g / 0.40));
+  // low sun: slight darkening just above the horizon away from the sun (Earth's shadow / Belt of Venus)
   float bq = (elDeg - 3.0) / 3.0, pq = (elDeg - 8.0) / 5.0;
-  float belt = exp(-bq * bq) * (1.0 - side);
+  float belt = exp(-bq * bq) * (1.0 - side) * uSkyMisc.x;
   c *= 1.0 - 0.25 * belt;
-  c += vec3(0.20, 0.08, 0.14) * exp(-pq * pq) * (1.0 - side);   // pink band above it
+  c += vec3(0.20, 0.08, 0.14) * exp(-pq * pq) * (1.0 - side) * uSkyMisc.x;   // pink band above it
   return c * uSkyTune.x;
 }
 
@@ -89,7 +122,7 @@ float bcSkyFbm(vec2 p) {
   return s;
 }
 
-// Stylised dawn clouds: streaky altocumulus decks lit from below by the low sun. Returns rgb (radiance)
+// Stylised clouds: streaky altocumulus decks (lit from below by a low sun, white by day). Returns rgb (radiance)
 // and alpha (coverage).
 vec4 bcClouds(vec3 d) {
   if (d.y < 0.002 || uSkyTune.y <= 0.0) return vec4(0.0);
@@ -108,12 +141,12 @@ vec4 bcClouds(vec3 d) {
   // undersides: lit by the sun from below the deck -> hot pink-gold toward the sun, violet behind
   vec2 hd = d.xz / max(length(d.xz), 1e-5), hs = uSunDir.xz / max(length(uSunDir.xz), 1e-5);
   float side = clamp(0.5 + 0.5 * dot(hd, hs), 0.0, 1.0);
-  vec3 under = mix(vec3(0.075, 0.035, 0.10), vec3(0.95, 0.26, 0.12), pow(side, 2.5));
-  under = mix(under, vec3(0.55, 0.16, 0.28), 0.35 * smoothstep(0.08, 0.3, d.y) * (1.0 - side));  // magenta high decks
+  vec3 under = mix(uCloudAnti, uCloudSun, pow(side, 2.5));
+  under = mix(under, uCloudHi, 0.35 * smoothstep(0.08, 0.3, d.y) * (1.0 - side));  // high decks (dawn: magenta)
   // gold lining: thin edges close to the sun glow (forward scattering through thin cloud)
   float thin = 1.0 - smoothstep(0.0, 0.7, dens);
-  vec3 lining = uSunColor * (2.2 * exp(-g / 0.12) + 0.45 * exp(-g / 0.40)) * thin * thin;
-  vec3 col = under * (0.6 + 0.6 * n2) + lining;
+  vec3 lining = uSunGlow * (2.2 * exp(-g / 0.12) + 0.45 * exp(-g / 0.40)) * thin * thin;
+  vec3 col = (under * (0.6 + 0.6 * n2) + lining) * uSkyMisc.z;
   return vec4(col * uSkyTune.x, clamp(dens * 1.3, 0.0, 0.97));
 }
 
@@ -128,7 +161,7 @@ vec3 bcSky(vec3 d, float disc) {
   float sd = 1.0 - smoothstep(RS - pxA, RS + pxA, g);
   float limb = sqrt(max(1.0 - (g / RS) * (g / RS), 0.0));
   // horizon extinction: the disc reddens and dims toward the horizon
-  c += disc * uSunColor * vec3(1.0, 0.92, 0.8) * 45.0 * sd * (0.55 + 0.45 * limb);
+  c += disc * uSunGlow * vec3(1.0, 0.92, 0.8) * 45.0 * sd * (0.55 + 0.45 * limb);
   vec4 cl = bcClouds(d);
   c = mix(c, cl.rgb, cl.a);
   return c;
@@ -137,7 +170,7 @@ vec3 bcSky(vec3 d, float disc) {
 
 // Diffuse sky irradiance / PI for normal N (upper hemisphere dominated, slight warm sea bounce).
 vec3 bcSkyAmbient(vec3 N) {
-  vec3 ground = vec3(0.05, 0.06, 0.07);
+  vec3 ground = uSkyAmb * vec3(0.167, 0.24, 0.212);            // sea / land bounce (dawn: 0.05, 0.06, 0.07)
   return mix(ground, uSkyAmb, 0.55 + 0.45 * N.y);
 }
 

@@ -168,6 +168,7 @@ export class RiderViews {
     const mk = modelKind(def.kind);
     const model = mk === 'surfer' ? new SurferModel(def, this.sunDir) : mk === 'dolphin' ? new DolphinModel(def, this.sunDir)
       : mk === 'turtle' ? new TurtleModel(def, this.sunDir) : new SealModel(def, this.sunDir);
+    model.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });   // day cycle: riders on the beach / rocks cast
     const wake = new Wake(this.wakeU, def.id | 0);
     this.group.add(model.group, wake.ribbon, wake.spray);
     model.group.visible = wake.ribbon.visible = wake.spray.visible = false;

@@ -179,11 +179,26 @@ export function finGeometry(outline, thick) {
  * edges that face the sun glow, and silhouettes seen against the sun get a thin hot outline so they read on
  * the backlit water from 200 m. uniforms.uRim (strength) is shared so a viewer can tune it.
  */
+/** Rim colour shared by every rider material; the day cycle (App.updateSun → setRiderRim) drives it. */
+export const RIDER_RIM_DAWN = new THREE.Color(1.0, 0.62, 0.32);
+export const RIDER_RIM = RIDER_RIM_DAWN.clone();
+const _rimSun = new THREE.Color();
+/**
+ * Day cycle (WP14): rim colour = the dawn orange at a low sun, whitening toward the sun's colour by day, scaled by
+ * sunAt().rim (0 at twilight, so the rim — which depends on the sun direction — is gone when the sun wraps).
+ */
+export function setRiderRim(s) {
+  const k = Math.min(1, Math.max(0, (s.elevationDeg - 8) / 30));
+  _rimSun.setRGB(s.color[0], s.color[1], s.color[2]);
+  RIDER_RIM.copy(RIDER_RIM_DAWN).lerp(_rimSun, k * k * (3 - 2 * k)).multiplyScalar(0.25 + 0.75 * s.rim);
+  if (s.rim < 0.25) RIDER_RIM.multiplyScalar(s.rim / 0.25);
+}
+
 export function riderMaterial(sunDir, { roughness = 0.6, rim = 1.5, sheen = 0.0, emissive = 0.0 } = {}) {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness, metalness: 0.0 });
   const u = {
     uRSun: { value: sunDir },
-    uRimColor: { value: new THREE.Color(1.0, 0.62, 0.32) },
+    uRimColor: { value: RIDER_RIM },
     uRim: { value: rim },
     uSelfLit: { value: emissive },
     uSheen: { value: sheen },
