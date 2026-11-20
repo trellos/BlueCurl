@@ -36,9 +36,9 @@ Interfaces: contracts.js sections "guitar input", "beat", "riders" (presence), "
 
 | WP | Package | Owns | Needs | Done when | Status |
 |---|---|---|---|---|---|
-| 10 | Guitar input: Tuninator recognizer → GuitarMapper (key/octave/chord key change) → impulses | src/input/guitar*.js, test/guitar*.test.mjs, public/tuninator/*, package.json dep | contracts | mapper rule tests; offline Tuninator fixtures → lanes; mock + live in app | in progress |
-| 11 | Beat: 4/4 bar clock, 8 levels from notes/measure (±1 per measure), Web Audio surf/tropical groove, HUD tempo control + beat/guitar readout | src/beat/*, src/hud/*, test/beat*.test.mjs | contracts | level-rule tests; audible 8 patterns with accented 1; bpm editable in HUD | in progress |
-| 12a | Rider presence: 8 riders follow beat level, 4-measure swim out / leave, flock events | src/riders/Riders.js, plan.js, brain.js, test/riders*.test.mjs, tools/rides-report.mjs | 11 contract | presence + flock timing tests; all old ride tests still pass | in progress |
-| 12b | Rider views: Noa (surfer) + Honu (turtle) models, enter/leave animation, hidden ASHORE | src/riders/RiderViews.js, src/riders/models/* | 12a contract | stills of turtle + surfer in wide and PiP | in progress |
-| 13 | Note splash + birds (per note, circling then away) + flock bursts | src/fx/* | contracts | keypress → massive splash + bird next frame; flock still | in progress |
+| 10 | Guitar input: Tuninator recognizer → GuitarMapper (key/octave/chord key change) → impulses | src/input/guitar*.js, test/guitar*.test.mjs, public/tuninator/*, package.json dep | contracts | mapper rule tests; offline Tuninator fixtures → lanes; mock + live in app | done (de271c4) |
+| 11 | Beat: 4/4 bar clock, 8 levels from notes/measure (±1 per measure), Web Audio surf/tropical groove, HUD tempo control + beat/guitar readout | src/beat/*, src/hud/*, test/beat*.test.mjs | contracts | level-rule tests; audible 8 patterns with accented 1; bpm editable in HUD | done (92c93d5) |
+| 12a | Rider presence: 8 riders follow beat level, 4-measure swim out / leave, flock events | src/riders/Riders.js, plan.js, brain.js, test/riders*.test.mjs, tools/rides-report.mjs | 11 contract | presence + flock timing tests; all old ride tests still pass | done (5fc03c1) |
+| 12b | Rider views: Noa (surfer) + Honu (turtle) models, enter/leave animation, hidden ASHORE | src/riders/RiderViews.js, src/riders/models/* | 12a contract | stills of turtle + surfer in wide and PiP | done (d1caadb) |
+| 13 | Note splash + birds (per note, circling then away) + flock bursts | src/fx/* | contracts | keypress → massive splash + bird next frame; flock still | done (6a250b1) |
 Orchestrator: contracts, App/main wiring, demo-guitar script, docs, integration stills, review.
