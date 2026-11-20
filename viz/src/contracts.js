@@ -19,9 +19,10 @@ export const stepsFor = (sec) => Math.max(0, Math.floor(sec / DT + 0.5 + STEP_TO
 // ---------------------------------------------------------------- swell front geometry
 // A front is a straight crest line parallel to Z spanning FRONT_Z0..FRONT_Z0+FRONT_W, moving toward -X.
 // Crest coordinate u ∈ [0,1] (0 = south end, 1 = north end). Sampled in NCOLS columns.
-export const FRONT_Z0 = -260;
-export const FRONT_W = 520;
-export const NCOLS = 128;
+// Layout compacted ×0.6 on 2026-11-20 (LOG.md) so waves read at a useful size from the wide camera.
+export const FRONT_Z0 = -156;
+export const FRONT_W = 312;
+export const NCOLS = 128;                  // column c sits at u = (c + 0.5) / NCOLS (cell centres)
 export const uToZ = (u) => FRONT_Z0 + u * FRONT_W;
 export const zToU = (z) => (z - FRONT_Z0) / FRONT_W;
 /** lane l of L lanes (left→right on screen = south→north) → crest coordinate u. */
@@ -31,24 +32,25 @@ export const laneToU = (lane, lanes = 8) => (lane + 0.5) / lanes;
 // Swell reaches outer → point → inside. Each zone breaks the columns of a front inside its crest range.
 // Energy that passes through a zone (or what's left after breaking) re-forms smaller toward the inside.
 export const ZONES = [
-  { key: 'outer',  lineX: 300, u0: zToU(30),   u1: zToU(230),  Hscale: 1.6, Hbreak: 2.4, vPeel: 11, Tb: 2.0, retain: 0.35, peelBias: -1 },
-  { key: 'point',  lineX: 165, u0: zToU(-120), u1: zToU(90),   Hscale: 1.0, Hbreak: 0.7, vPeel: 9,  Tb: 2.6, retain: 0.40, peelBias: -1 },
-  { key: 'inside', lineX: 55,  u0: zToU(-235), u1: zToU(-35),  Hscale: 0.55, Hbreak: 0.35, vPeel: 6, Tb: 3.0, retain: 0.0, peelBias: 0 },
+  { key: 'outer',  lineX: 180, u0: zToU(18),   u1: zToU(138),  Hscale: 2.0, Hbreak: 3.0,  vPeel: 9, Tb: 2.0, retain: 0.35, peelBias: -1 },
+  { key: 'point',  lineX: 100, u0: zToU(-72),  u1: zToU(54),   Hscale: 1.3, Hbreak: 0.9,  vPeel: 8, Tb: 2.6, retain: 0.40, peelBias: -1 },
+  { key: 'inside', lineX: 33,  u0: zToU(-141), u1: zToU(-21),  Hscale: 0.7, Hbreak: 0.45, vPeel: 5, Tb: 3.0, retain: 0.0,  peelBias: 0 },
 ];
-// Land: beach at x≈0 for z∈[-260,-20] (the bay). Northern headland (the point) with a ~35 m cliff,
-// land for roughly x < 110 and z > 60, tip near (115, 95). Palms on the headland and around the bay.
-// Outer reef: shallow reef patch around x 260..330, z 40..220. Point: rock shelf along the headland's
-// south face. Inside: sandbar x 40..80, z -230..-40.
+// Land: beach at x≈0 for z∈[-156,-12] (the bay). Northern headland (the point), ~30 m cliff on its
+// east face, land for roughly x < 66 and z > 36, tip near (70, 57). Palms on the headland and around the bay.
+// Outer reef: shallow reef patch around x 155..200, z 24..132. Point: rock shelf along the headland's
+// south face. Inside: sandbar x 24..48, z -138..-24. The straight crest runs into the headland north of
+// z≈36 once x < 66: the terrain hides it there; the sim tapers those columns.
 
 // ---------------------------------------------------------------- crest travel path
 // Crest x as a function of (t - tPoint), where tPoint = time the crest reaches the point line.
 // Times before 0 are scaled by cfg.travel / 14 (travel = horizon→point seconds). Monotone cubic interp.
 export const PATH = [
-  { x: 760, t: -14 },   // horizon spawn (fade in over first 2 s)
-  { x: 300, t: -5.5 },  // outer reef line
-  { x: 165, t: 0 },     // point line  (tPoint lands on the beat grid)
-  { x: 55,  t: 13 },    // inside line
-  { x: 0,   t: 21 },    // shore (fade out, front dies)
+  { x: 600, t: -14 },   // horizon spawn (fade in over first 2 s)
+  { x: 180, t: -5.5 },  // outer reef line
+  { x: 100, t: 0 },     // point line  (tPoint lands on the beat grid)
+  { x: 33,  t: 10 },    // inside line
+  { x: 0,   t: 15 },    // shore (fade out, front dies)
 ];
 
 // ---------------------------------------------------------------- runtime config (tunable, logged)
@@ -141,12 +143,14 @@ export function breakStartTime(zb, u) {
     return back > zb.backLen ? Infinity : zb.tBreak + back / (0.5 * zb.vPeel);
   }
   if (s > zb.peelLen) return Infinity;
-  if (zb.sections > 1) {                                         // chunks: each section folds fast
-    const seg = zb.peelLen / zb.sections, k = Math.min(zb.sections - 1, Math.floor(s / seg));
-    return zb.tBreak + (k * seg) / zb.vPeel + (s - k * seg) / (4 * zb.vPeel);
+  if (zb.sections > 1) {                                         // chunks fold fast: smooth monotone staircase
+    const seg = zb.peelLen / zb.sections, w = (2 * Math.PI) / seg;
+    return zb.tBreak + (s - 0.75 * Math.sin(w * s) / w) / zb.vPeel;
   }
   return zb.tBreak + s / zb.vPeel;
 }
+// Discontinuities left by design (peel end, backLen end, zone edges u0/u1): the sim tapers cols H/curl
+// toward 0 there so the jump in tau is invisible. Profile at tau = 2 equals tau = -1 (re-formed swell).
 /**
  * Local break phase of column u at time t: the most recent zone whose start time has passed wins.
  * tau < 0 → unbroken swell; 0..1 steepen/throw/plunge/collapse; 1..2 whitewater re-forming to swell; capped at 2.

@@ -4,18 +4,18 @@ A stylised surf-fantasy visualizer for live music. Notes add energy to swell fro
 
 ## Spot
 World axes: +X east (seaward, sunrise), +Y up, +Z north. Waves travel toward −X. The sun is low in the east (about 6°), behind the swell, so the lips are backlit.
-- **Headland (the point):** north side, with a ~35 m cliff and palms; its tip is near (115, 95).
+- **Headland (the point):** north side, with a ~30 m cliff and palms; its tip is near (70, 57).
 - **Bay:** a beach at x≈0 to the south.
 
 Three zones are reached in this order:
 
 | zone | break line x | crest z-range | character |
 |---|---|---|---|
-| outer reef | 300 | 30…230 | biggest, hollow, short peel; needs a lot of energy (H ≥ 2.4 m) to break |
-| point | 165 | −120…90 | long peeling wall, the main break |
-| inside | 55 | −235…−35 | small, mellow beach break |
+| outer reef | 180 | 18…138 | biggest, hollow, short peel; needs a lot of energy (H ≥ 3 m) to break |
+| point | 100 | −72…54 | long peeling wall, the main break |
+| inside | 33 | −141…−21 | small, mellow beach break |
 
-A front is one straight crest across the bay (z −260…260). Each zone breaks the columns inside its range. Whatever passes a zone unbroken, plus 35–40 % of what broke, re-forms smaller toward the inside.
+A front is one straight crest across the bay (z −156…156). The layout is compact (×0.6 of the first draft) and the heights are fantasy-scaled, so waves read in the wide view. Each zone breaks the columns inside its range. Whatever passes a zone unbroken, plus 35–40 % of what broke, re-forms smaller toward the inside.
 
 ## Swell and input
 - **Lanes:** keys 1–8 are lanes 0–7 along the crest, south→north, which is screen left→right from the cliff camera. Shift+key gives a soft note (0.4); a plain key is 1.0. Keyup is logged, so duration is available later.
