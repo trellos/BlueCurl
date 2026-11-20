@@ -11,14 +11,20 @@
 //    coordinates; world pos / normal come from field.sampleFront.
 //  - KICKOUT over the back at the end of the peel / planned length; CLOSEOUT (wipe/dive) when the break overtakes
 //    the rider (τ > 0.85 at the rider, e.g. on a close-out). 'rideEnd' carries the outcome. RETURN to a lineup.
-// Determinism: fixed steps, state = f(cfg, swell history); seeded by hash01/mulberry32; no Math.random.
+// Presence (milestone 2, contract "riders"): the number of riders in the water follows beat.level. ASHORE riders are
+// out of the scene; ENTER paddles (surfers, from the bay beach) or swims (animals, from open sea seaward of their
+// lineup) to the lineup, arriving exactly on the downbeat of measure enterIndex + cfg.beat.entryMeasures (progress is
+// measured in measures, so a bpm change mid-entry still lands on that downbeat). Riders asked to leave finish their
+// ride first, then LEAVE over entryMeasures measures (an ENTERing rider turns round and goes back the way it came,
+// taking as long as it had swum) and become ASHORE. Without a beat (step(t, dt, swell)) every rider is present.
+// Determinism: fixed steps, state = f(cfg, swell history, beat history); seeded by hash01/mulberry32; no Math.random.
 // Every RideEvent is a fresh object (the camera rig de-duplicates by identity). frontId / zi stay set from
 // POSITION until the rider starts RETURN.
-import { RIDERS, ZONES, DT, FRONT_W, uToZ, zToU, hash01, breakStartTime, ambientHeight } from '../contracts.js';
+import { RIDERS, ZONES, ENTRY_ORDER, DT, FRONT_W, uToZ, zToU, hash01, breakStartTime, ambientHeight } from '../contracts.js';
 import { sampleFront, barrel, columnState, evalLocal, crossings } from '../wave/field.js';
 import { profileInto } from '../wave/profile.js';
 import { pathSpline, pathEval } from '../sim/swell.js';
-import { depthAt } from '../spot/bathymetry.js';
+import { depthAt, xBay } from '../spot/bathymetry.js';
 import {
   waveFrame, uOfS, sOfU, curlS, tauAt, faceSigma, chooseStyle, buildPlan, evalPlan, sigmaOfH, H_TOE, SIG_BACK, seaLevel,
 } from './plan.js';
@@ -32,10 +38,34 @@ const CO_T = 1.8;            // s, close-out wipe (attached for CO_ATTACH, then 
 const CO_ATTACH = 0.6;
 const ERR_TAU = 0.2;
 const CATCH_EASE = 0.5;      // s, paddle speed → wave speed at the catch
+const SHARE = 0.75;          // wave-choice weight factor per ride already taken (spreads the waves around)
+const RESTLESS = 40;         // s in a lineup without a wave before a rider tries its other zone (+ 0..15 s seeded)
+const restAt = (id, t, seed) => t + RESTLESS + 15 * hash01(id, Math.round(t * 8), seed + 5);
+const CATCH_DH = 4;        // 1/s, max rate of the face lift h during the catch ease
 const TRAIL_EVERY = 2, TRAIL_DT = TRAIL_EVERY * DT, TRAIL_N = 128;   // position trail for wakes (≈ 2.1 s)         // s, transition smoothing of the position
 const TAU_CLOSE = 0.85;      // the break overtook the rider
-const HOP = { surfer: 0.7, dolphin: 2.0, seal: 0.8 };
-const ACC = { surfer: 4, dolphin: 14, seal: 7 };          // m/s², paddling / swimming acceleration
+const HOP = { surfer: 0.7, dolphin: 2.0, seal: 0.8, turtle: 0.5 };
+const ACC = { surfer: 4, dolphin: 14, seal: 7, turtle: 4 };          // m/s², paddling / swimming acceleration
+const SWIM_OFF = { surfer: 0, dolphin: -0.4, seal: -0.15, turtle: -0.2 };   // swimming depth (vertical offset)
+const OFFSHORE = { dolphin: 100, seal: 70, turtle: 60 };  // m seaward of the lineup where animals come from / go to
+const OPEN_SEA_X = 140;                                    // animals come from / go to at least this far out (past the point)
+const BEACH_Z0 = -45, BEACH_Z1 = -22;                     // bay beach stretch surfers use (left edge of the wide view)
+const PRESENT_IDLE = new Set(['LINEUP', 'RETURN', 'POSITION']);   // can leave right away (no ride in progress)
+const SWIMMING = new Set(['LINEUP', 'POSITION', 'RETURN', 'ENTER', 'LEAVE', 'ASHORE']);   // on the sea surface
+/** Entry / exit easing: gentle start and landing (velocity 0.4× average at both ends, 1.3× peak). */
+const easeIO = (p) => 0.4 * p + 0.6 * smooth(p);
+
+/** Shoreline point of the bay beach at z: first x seaward of the beach with ≥ 0.3 m of water. */
+export function beachPoint(z) {
+  let x = xBay(z);
+  for (let i = 0; i < 80 && depthAt(x, z) < 0.3; i++) x += 0.25;
+  return { x, z };
+}
+/** Where a rider comes from / goes to: surfers the beach, animals open sea seaward of (x, z) and its lineup. */
+function exitPoint(kind, x, z, home) {
+  if (kind === 'surfer') return beachPoint(clamp(z, BEACH_Z0, BEACH_Z1));
+  return { x: Math.max(OPEN_SEA_X, Math.max(x, home.x) + (OFFSHORE[kind] ?? 70)), z };
+}
 
 export class Riders {
   constructor(cfg) { this.cfg = cfg; this.reset(); }
@@ -49,19 +79,30 @@ export class Riders {
     this._rideN = 0;
     const homes = homeSpots(seed);
     this._b = [];
+    this._beat = null;
+    this._beatSeen = 0;         // last beat measure index processed
+    this._level = 1;            // last beat level seen
     this.riders = RIDERS.map((R) => {
       const zi = ZONES.findIndex((Z) => Z.key === R.zones[0]);
-      const h = homes[R.id][zi];
+      // entry lineup: the rider's first zone (surfers paddle there from the beach, animals swim in from open sea)
+      const ezi = zi;
+      const eh = homes[R.id][ezi];
+      const spawn = exitPoint(R.kind, eh.x, R.kind === 'surfer' ? eh.z + 4 * (hash01(R.id, 77, seed) - 0.5) : eh.z, eh);
+      const inAtStart = R.id === ENTRY_ORDER[0];
+      const h = inAtStart ? homes[R.id][zi] : spawn;
       const r = {
         id: R.id, kind: R.kind, name: R.name, color: R.color, zones: R.zones.slice(),
-        state: 'LINEUP', style: null, action: 'idle', actionT: 0,
+        state: inAtStart ? 'LINEUP' : 'ASHORE', present: inAtStart, enterT: inAtStart ? 0 : null, arriveT: inAtStart ? 0 : null, exitT: null,
+        style: null, action: 'idle', actionT: 0,
         pos: { x: h.x, y: ambientHeight(h.x, h.z, 0), z: h.z }, fwd: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 },
         speed: 0, frontId: null, zi: -1, u: zToU(h.z), sigma: 0, tube: false,
         prevAction: 'idle', prevActionT: 0, actionStart: 0,
         trail: { dt: TRAIL_DT, n: TRAIL_N, count: 0, head: -1, t: 0, xyz: new Float32Array(TRAIL_N * 3) },
       };
       this._b.push({
-        homes: homes[R.id], homeZi: zi, coolUntil: 0, idle: null, idleN: 0, wx: h.x, wz: h.z,
+        homes: homes[R.id], homeZi: inAtStart ? zi : ezi, firstZi: zi, entryZi: ezi, spawn,
+        enterIdx: null, arriveIdx: null, leaving: false, path: null,
+        coolUntil: 0, restAt: restAt(R.id, 0, seed), idle: null, idleN: 0, wx: h.x, wz: h.z,
         ride: null, tState: 0, seg: null, mv: { x: 0, z: 0 }, lastV: { x: 0, y: 0, z: 0 }, err: { x: 0, y: 0, z: 0 }, cont: false, prev: null, vs: { x: 0, y: 0, z: 0 }, lean: 0,
       });
       return r;
@@ -69,9 +110,12 @@ export class Riders {
   }
 
   // ------------------------------------------------------------------ step
-  step(t, dt, swell) {
+  step(t, dt, swell, beat = null) {
     this.t = t;
     const seed = this.cfg?.seed ?? 1;
+    // 0. presence: arrivals, flocks, joiners / leavers from the beat level
+    this._beat = beat;
+    this._presence(t, swell, beat);
     // 1. new zone breaks → wave choice
     for (const f of swell.fronts) {
       for (const zb of f.breaks) {
@@ -99,6 +143,134 @@ export class Riders {
     let cut = 0;
     while (cut < this.events.length && (this.events[cut].t < t - 60 || this.events.length - cut > 256)) cut++;
     if (cut) this.events.splice(0, cut);
+  }
+
+  // ------------------------------------------------------------------ presence
+  get entryMeasures() { return Math.max(1, Math.round(this.cfg?.beat?.entryMeasures ?? 4)); }
+
+  _presence(t, swell, beat) {
+    if (!beat) {                                        // no beat clock: everyone is in the water (legacy / tests)
+      this.riders.forEach((r, i) => {
+        if (r.state !== 'ASHORE') return;
+        const b = this._b[i], h = b.homes[b.firstZi];
+        b.homeZi = b.firstZi; b.wx = h.x; b.wz = h.z; b.idle = null; b.restAt = restAt(r.id, t, this.cfg?.seed ?? 1);
+        r.present = true; r.enterT = r.arriveT = t;
+        this._setState(r, b, 'LINEUP', t); b.cont = false;
+      });
+      return;
+    }
+    // downbeats since the last step (normally 0 or 1); a beat without an event ring gets synthesised ones
+    const downs = [];
+    if (beat.measure > this._beatSeen) {
+      for (let idx = this._beatSeen + 1; idx <= beat.measure; idx++) {
+        const ev = (beat.events || []).find((e) => e.type === 'downbeat' && e.index === idx);
+        downs.push(ev ?? { index: idx, t: idx === beat.measure ? beat.measureT0 : undefined,
+          change: idx === beat.measure ? Math.sign(beat.level - this._level) : 0 });
+      }
+      this._beatSeen = beat.measure;
+    }
+    this._level = beat.level;
+    // 1. arrivals (a flock when the level changed on the very downbeat of the arrival)
+    this.riders.forEach((r, i) => {
+      const b = this._b[i];
+      if (r.state !== 'ENTER' || beat.measure < b.arriveIdx) return;
+      const h = b.homes[b.homeZi];
+      b.wx = h.x; b.wz = h.z; b.idle = null; b.coolUntil = t + 1; b.path = null; b.restAt = restAt(r.id, t, this.cfg?.seed ?? 1);
+      const db = downs.find((d) => d.index === b.arriveIdx);
+      r.arriveT = db?.t ?? beat.measureT0;
+      this._setState(r, b, 'LINEUP', t);
+      const pos = { x: h.x, y: this._surf(swell, h.x, h.z, t), z: h.z };
+      this._emit({ t, type: 'arrive', riderId: r.id, pos });
+      if (db && db.change) this._emit({ t, type: 'flock', riderId: r.id, pos });
+    });
+    // 2. who should be in the water: the first `level` of ENTRY_ORDER (so joiners in order, leavers LIFO)
+    const n = clamp(Math.round(beat.level), 1, this.riders.length);
+    for (let k = 0; k < ENTRY_ORDER.length; k++) {
+      const id = ENTRY_ORDER[k], r = this.riders[id], b = this._b[id];
+      if (!r) continue;
+      if (k < n) {
+        if (b.leaving) b.leaving = false;                                   // still riding: simply stays
+        else if (r.state === 'ASHORE' || r.state === 'LEAVE') this._startEnter(r, b, t, swell, beat);
+      } else if (r.state !== 'ASHORE' && r.state !== 'LEAVE' && !b.leaving) {
+        if (r.state === 'ENTER') this._startLeave(r, b, t, Math.max(0.5, t - r.enterT));   // turn round
+        else if (PRESENT_IDLE.has(r.state)) this._startLeave(r, b, t, this.entryMeasures * beat.measureLen);
+        else b.leaving = true;                                              // finish the ride / kick-out first
+      }
+    }
+  }
+
+  _startEnter(r, b, t, swell, beat) {
+    b.homeZi = b.entryZi;
+    const h = b.homes[b.homeZi];
+    b.path = { x0: b.wx, z0: b.wz, x1: h.x, z1: h.z };
+    b.enterIdx = beat.measure; b.arriveIdx = beat.measure + this.entryMeasures;
+    b.ride = null; b.leaving = false; b.idle = null; b.nRides = 0;
+    r.frontId = null; r.zi = -1; r.style = null; r.tube = false;
+    r.present = true; r.enterT = t; r.exitT = null; r.arriveT = this._predictArrive(b, beat);
+    this._setState(r, b, 'ENTER', t);
+    this._emit({ t, type: 'enter', riderId: r.id, pos: { x: b.wx, y: this._surf(swell, b.wx, b.wz, t), z: b.wz } });
+  }
+
+  /** Time of the downbeat of measure b.arriveIdx from the current measure and the bpm for the measures after it. */
+  _predictArrive(b, beat) {
+    const k = b.arriveIdx - beat.measure;
+    if (k <= 0) return beat.measureT0;
+    const bpm = +this.cfg?.bpm;
+    const next = 240 / (Number.isFinite(bpm) && bpm > 0 ? clamp(bpm, 1, 1000) : 120);
+    return beat.measureT0 + beat.measureLen + (k - 1) * next;
+  }
+
+  _startLeave(r, b, t, dur) {
+    const h = b.homes[b.homeZi];
+    // turning round on the way in: straight back to where it came from; otherwise the beach / open sea
+    const e = r.state === 'ENTER' && b.path ? { x: b.path.x0, z: b.path.z0 } : exitPoint(r.kind, b.wx, b.wz, h);
+    b.path = { x0: b.wx, z0: b.wz, x1: e.x, z1: e.z, t0: t, dur };
+    r.exitT = t + dur;
+    b.ride = null; b.leaving = false; b.enterIdx = b.arriveIdx = null;
+    r.frontId = null; r.zi = -1; r.style = null; r.tube = false;
+    this._setState(r, b, 'LEAVE', t);
+    this._emit({ t, type: 'leave', riderId: r.id, pos: { x: r.pos.x, y: r.pos.y, z: r.pos.z } });
+  }
+
+  /** Swim / paddle motion of ENTER and LEAVE: position along b.path at progress p, with the travel animation. */
+  _travel(r, b, t, swell, p) {
+    const P = b.path, e = easeIO(clamp(p, 0, 1));
+    b.wx = P.x0 + (P.x1 - P.x0) * e; b.wz = P.z0 + (P.z1 - P.z0) * e;
+    r.u = zToU(b.wz); r.sigma = 0;
+    const el = t - b.tState;
+    let off = SWIM_OFF[r.kind] ?? 0, act = r.kind === 'surfer' ? 'paddle' : 'swim', actT = (el / 1.1) % 1, air = false;
+    if (r.kind === 'dolphin') {                       // porpoising across open water: a low leap every 1.6 s
+      const c = (el % 1.6) / 1.6;
+      if (c < 0.45 && p > 0.05 && p < 0.9) { act = 'jump'; actT = c / 0.45; off = -0.4 + 1.5 * Math.sin(Math.PI * actT) ** 2; air = off > 0; }
+    }
+    return { x: b.wx, y: this._surf(swell, b.wx, b.wz, t) + off, z: b.wz, act, actT, carry: 0, n: null, air,
+      pitch: r.kind === 'dolphin' };
+  }
+
+  _enter(r, b, t, swell) {
+    const beat = this._beat;
+    // progress in measures: continuous across downbeats and exactly 1 on the arrival downbeat whatever the bpm does
+    const m = beat ? beat.measure - b.enterIdx + clamp((t - beat.measureT0) / beat.measureLen, 0, 1) : 0;
+    if (beat) r.arriveT = this._predictArrive(b, beat);
+    return this._travel(r, b, t, swell, m / (b.arriveIdx - b.enterIdx));
+  }
+
+  _leave(r, b, t, swell) {
+    const P = b.path, p = (t - P.t0) / P.dur;
+    if (p >= 1) {
+      b.wx = P.x1; b.wz = P.z1; b.path = null;
+      r.present = false;
+      this._setState(r, b, 'ASHORE', t);
+      this._emit({ t, type: 'gone', riderId: r.id, pos: { x: b.wx, y: this._surf(swell, b.wx, b.wz, t), z: b.wz } });
+      return null;
+    }
+    return this._travel(r, b, t, swell, p);
+  }
+
+  _ashore(r, b, t, swell) {
+    r.u = zToU(b.wz); r.sigma = 0; r.style = null; r.tube = false;
+    return { x: b.wx, y: this._surf(swell, b.wx, b.wz, t) + Math.min(0, SWIM_OFF[r.kind] ?? 0), z: b.wz, act: 'idle', actT: 0,
+      carry: 0, n: null, pitch: false };
   }
 
   /**
@@ -150,7 +322,8 @@ export class Riders {
       if (!opt) continue;
       if (tier === 2 && opt.tauEst > 0.05) tier = 3;                       // too late for a clean take-off
       if (tier === 3 && (opt.tauEst > 0.45 || b.wx <= ZONES[zb.zi].lineX - 58)) continue;
-      [tier1, tier2, tier3][tier - 1].push({ r, b, opt, w: fit(r.kind, zb) * opt.reach });
+      // share the waves: every ride already taken costs a little weight (keeps the lineup's last arrivals riding)
+      [tier1, tier2, tier3][tier - 1].push({ r, b, opt, w: fit(r.kind, zb) * opt.reach * SHARE ** (b.nRides ?? 0) });
     }
     // tier 2 (in cool-down / nearly back) and tier 3 (late, from inside) only when nobody fresh can go
     if (!tier1.length && !tier2.length) for (const c of tier3) if (c.opt.tauEst > 0.05) c.w = Math.max(c.w, 1e-3);
@@ -262,6 +435,9 @@ export class Riders {
         case 'TAKEOFF': case 'RIDE': raw = this._ride(r, b, t, dt, swell); break;
         case 'KICKOUT': raw = this._kickout(r, b, t, swell); break;
         case 'CLOSEOUT': raw = this._closeout(r, b, t, dt, swell); break;
+        case 'ASHORE': raw = this._ashore(r, b, t, swell); break;
+        case 'ENTER': raw = this._enter(r, b, t, swell); break;
+        case 'LEAVE': raw = this._leave(r, b, t, swell); break;
         default: raw = this._return(r, b, t, dt, swell); break;
       }
     }
@@ -272,7 +448,12 @@ export class Riders {
       if (b.prev) {
         b.err.x = b.prev.x + b.lastV.x * dt - raw.x; b.err.y = b.prev.y + b.lastV.y * dt - raw.y; b.err.z = b.prev.z + b.lastV.z * dt - raw.z;
       }
+    } else if (b.rawY != null && SWIMMING.has(r.state) && Math.abs(raw.y - b.rawY) > 0.2) {
+      // swimming / paddling on the sea surface: a jump of the surface under the rider (a breaking front's face or
+      // bore reaching it) is absorbed and eased out like a transition instead of popping the rider in one step
+      b.err.y += b.rawY - raw.y;
     }
+    b.rawY = raw.y;
     const k = Math.exp(-dt / ERR_TAU);
     const p = r.pos;
     p.x = raw.x + b.err.x; p.y = raw.y + b.err.y; p.z = raw.z + b.err.z;
@@ -348,8 +529,21 @@ export class Riders {
 
   _surf(swell, x, z, t) { return seaLevel(swell.fronts, x, z, t); }
 
+  /** Riders in the water and staying (for lineup crowding). */
+  _inWater() {
+    const out = [];
+    this.riders.forEach((r, i) => { if (r.present && r.state !== 'LEAVE' && !this._b[i].leaving) out.push({ r, b: this._b[i] }); });
+    return out;
+  }
+
   // ------------------------------------------------------------------ LINEUP
   _lineup(r, b, t, swell, seed) {
+    // restless: no wave here for a long while → paddle / swim over to the rider's other zone (if any)
+    if (t >= b.restAt) {
+      b.restAt = restAt(r.id, t, seed);
+      const zi = pickHome(r, b, b.wx, b.wz, this._inWater(), b.homeZi);
+      if (zi !== b.homeZi) { b.homeZi = zi; this._setState(r, b, 'RETURN', t); return null; }
+    }
     const o = idleStep(r, b, t, seed, IDLE);
     b.wx = o.x; b.wz = o.z;
     r.style = null; r.tube = false; r.u = zToU(o.z); r.sigma = 0;
@@ -372,7 +566,7 @@ export class Riders {
     const vx = clamp(dx / tl0, -vxMax, vxMax);
     this._steer(r, b, vx, vz, dt);
     const tl = o.tCatch - t;
-    const off = r.kind === 'dolphin' ? -0.4 : r.kind === 'seal' ? -0.15 : 0;
+    const off = SWIM_OFF[r.kind] ?? 0;
     return { x: b.wx, y: this._surf(swell, b.wx, b.wz, t) + off, z: b.wz,
       act: r.kind === 'surfer' ? 'paddle' : 'swim', actT: ((t - b.tState) / 1.1) % 1,
       carry: 0, n: null, face: tl < 1.5 ? [-1, 0] : null, pitch: false };
@@ -392,6 +586,7 @@ export class Riders {
     R.plan = buildPlan({ wf, kind: r.kind, style: R.style, seed: R.seed, tC: t, sC: sOfU(wf, u), hC,
       tauBias: R.slot ? -0.25 : 0 });
     R.tTakeoff = t;
+    b.nRides = (b.nRides ?? 0) + 1;
     R.c0 = { x: b.wx, z: b.wz, u, vx: b.lastV.x, vz: b.lastV.z };
     r.style = R.style;
     this._setState(r, b, 'TAKEOFF', t);
@@ -430,6 +625,8 @@ export class Riders {
       let lo = 0, hi = 1;
       for (let i = 0; i < 18; i++) { const m = 0.5 * (lo + hi); if (f.x - evalLocal(cs, faceSigma(cs, m), LQ).xi < xF) lo = m; else hi = m; }
       h = 0.5 * (lo + hi) + (h - 0.5 * (lo + hi)) * w;
+      // a near-vertical face makes h(x) ill-conditioned: never let the lift jump (≤ CATCH_DH per second)
+      if (R._hT != null && Math.abs(R._hT - (t - dt)) < 1e-6) h = clamp(h, R.h - CATCH_DH * dt, R.h + CATCH_DH * dt);
     }
     if (tau > 0.2) h = Math.min(h, 1 - 0.75 * smooth((tau - 0.2) / 0.2));     // never on the lip's underside
     const sigma = faceSigma(columnState(f, uu, t, CS), h);
@@ -528,7 +725,11 @@ export class Riders {
   // ------------------------------------------------------------------ RETURN
   _toReturn(r, b, t, pos) {
     if (pos) { b.wx = pos.x; b.wz = pos.z; }
-    b.homeZi = pickHome(r, b, b.wx, b.wz, this.riders.map((rr, i) => ({ r: rr, b: this._b[i] })));
+    if (b.leaving) {                                   // asked to leave during the ride: now head out of the scene
+      this._startLeave(r, b, t, this.entryMeasures * (this._beat?.measureLen ?? 2));
+      return;
+    }
+    b.homeZi = pickHome(r, b, b.wx, b.wz, this._inWater());
     b.ride = null;
     r.frontId = null; r.zi = -1; r.style = null; r.tube = false;
     this._setState(r, b, 'RETURN', t);
@@ -539,7 +740,7 @@ export class Riders {
     const dx = h.x - b.wx, dz = h.z - b.wz, dist = Math.hypot(dx, dz);
     const el = t - b.tState;
     if (dist < 0.6) {
-      b.coolUntil = t + KINDS[r.kind].cool; b.idle = null;
+      b.coolUntil = t + KINDS[r.kind].cool; b.idle = null; b.restAt = restAt(r.id, t, this.cfg?.seed ?? 1);
       this._setState(r, b, 'LINEUP', t);
       return null;
     }
@@ -551,7 +752,7 @@ export class Riders {
       const c = (el % 1.6) / 1.6;
       if (c < 0.45) { act = 'jump'; actT = c / 0.45; off = -0.4 + 1.7 * clamp((dist - 2) / 4, 0, 1) * Math.sin(Math.PI * actT) ** 2; air = off > 0; }
       else { act = 'swim'; actT = c; off = -0.4; }
-    } else if (r.kind === 'seal') { act = 'swim'; off = -0.15; }
+    } else if (r.kind === 'seal' || r.kind === 'turtle') { act = 'swim'; off = SWIM_OFF[r.kind]; }
     return { x: b.wx, y: this._surf(swell, b.wx, b.wz, t) + off, z: b.wz, act, actT, carry: 0, n: null, air,
       pitch: r.kind === 'dolphin' };
   }

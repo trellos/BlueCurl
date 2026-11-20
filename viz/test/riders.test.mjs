@@ -1,8 +1,10 @@
 // WP6a — rider simulation: Swell + Riders run headlessly over demo/demo-basic.json (and silence).
+// These suites run WITHOUT a beat (every rider in the water, see Riders.step) so all 8 riders compete for every wave;
+// rider presence (the beat-driven count) is covered by riders-presence.test.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { DT, hash01 } from '../src/contracts.js';
+import { DT, hash01, ENTRY_ORDER } from '../src/contracts.js';
 import { surfaceHeight, sampleFront, columnState } from '../src/wave/field.js';
 import { SIGMA_TROUGH } from '../src/wave/keyframes.js';
 import { seaLevel } from '../src/riders/plan.js';
@@ -12,7 +14,7 @@ const demo = JSON.parse(fs.readFileSync(new URL('../demo/demo-basic.json', impor
 const UNTIL = (demo.duration ?? 92) + 40;          // silence after the demo: everyone gets back to the lineup
 
 const NEXT = {
-  LINEUP: ['POSITION'], POSITION: ['TAKEOFF', 'RETURN'], TAKEOFF: ['RIDE', 'CLOSEOUT', 'KICKOUT'],
+  LINEUP: ['POSITION', 'RETURN'], POSITION: ['TAKEOFF', 'RETURN'], TAKEOFF: ['RIDE', 'CLOSEOUT', 'KICKOUT'],
   RIDE: ['KICKOUT', 'CLOSEOUT'], KICKOUT: ['RETURN'], CLOSEOUT: ['RETURN'], RETURN: ['LINEUP', 'POSITION'],
 };
 
@@ -23,7 +25,7 @@ function run(d = demo, until = UNTIL) {
     face: new Map(), minUpY: 1, fwdSnap: 0, prevFwd: new Map() };
   const prevState = new Map();
   const res = simulate(d, {
-    until,
+    until, beat: null,
     onStep(t, swell, riders) {
       for (const ev of riders.events) {                // new events (each a fresh object)
         if (out.seenEv.has(ev)) continue;
@@ -184,7 +186,7 @@ test('silence gives no rides', () => {
   assert.equal(s.riders.rides.length, 0);
   assert.equal(s.events.length, 0);
   assert.equal(s.nan, 0);
-  for (const r of s.riders.riders) assert.equal(r.state, 'LINEUP');
+  for (const r of s.riders.riders) assert.ok(r.state === 'LINEUP' || r.state === 'RETURN', r.state);   // RETURN: restless, moving zones
   // idle behaviours run (each kind moves / animates)
   assert.ok(s.trace.length === Math.round(60 / 0.5) && new Set(s.trace).size > 10);
 });
@@ -192,7 +194,7 @@ test('silence gives no rides', () => {
 test('plan.seaLevel matches field.surfaceHeight (cheap scan used for bobbing)', () => {
   let worst = 0;
   simulate(demo, {
-    until: 40,
+    until: 40, beat: null,
     onStep(t, swell) {
       if (Math.abs(t - Math.round(t)) > 1e-6) return;
       for (let i = 0; i < 25; i++) {
@@ -210,6 +212,8 @@ test('reset() rewinds to the initial lineup', () => {
   R.reset();
   assert.equal(R.rides.length, 0);
   assert.equal(R.events.length, 0);
-  for (const r of R.riders) assert.equal(r.state, 'LINEUP');
+  // t = 0: only ENTRY_ORDER[0] (Kai) is in the water, everyone else waits ashore
+  for (const r of R.riders) assert.equal(r.state, r.id === ENTRY_ORDER[0] ? 'LINEUP' : 'ASHORE');
+  for (const r of R.riders) assert.equal(r.present, r.id === ENTRY_ORDER[0]);
   assert.ok(DT > 0);
 });

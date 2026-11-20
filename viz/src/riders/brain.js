@@ -9,6 +9,7 @@ export const KINDS = {
   surfer:  { vPos: 3, vRet: 2, cool: 4 },
   dolphin: { vPos: 8, vRet: 6, cool: 4 },
   seal:    { vPos: 4, vRet: 3, cool: 4 },
+  turtle:  { vPos: 3, vRet: 2, cool: 5 },     // a slow seal
 };
 
 /**
@@ -25,22 +26,28 @@ export function homeSpots(seed) {
     const zPk = uToZ(Math.min(Math.max(0.5, Z.u0 + 0.03 * (Z.u1 - Z.u0)), Z.u1 - 0.03 * (Z.u1 - Z.u0)));
     const zc = 0.4 * (0.5 * (z0 + z1)) + 0.6 * zPk;
     const sp = Math.min(13, (0.7 * w) / Math.max(1, list.length));
+    const slot = (k) => (k % 2 ? 1 : -1) * (Math.floor(k / 2) + 0.5);   // −½, +½, −1½, +1½ … around the takeoff area
+    // shift the whole group (not single riders) back inside the zone so nobody is clamped onto a neighbour
+    let lo = Infinity, hi = -Infinity;
+    list.forEach((r, k) => { const z = zc + slot(k) * sp; lo = Math.min(lo, z); hi = Math.max(hi, z); });
+    const shift = Math.max(0, z0 + 9.5 - lo) - Math.max(0, hi - (z1 - 9.5));
     list.forEach((r, k) => {
-      const slot = (k % 2 ? 1 : -1) * (Math.floor(k / 2) + 0.5);   // −½, +½, −1½, +1½ … around the takeoff area
       homes[r.id][zi] = {
         x: Z.lineX + 5 + 7 * hash01(r.id, zi + 10, seed),
-        z: Math.min(z1 - 8, Math.max(z0 + 8, zc + slot * sp + 3 * (hash01(r.id, zi, seed) - 0.5))),
+        z: Math.min(z1 - 8, Math.max(z0 + 8, zc + shift + slot(k) * sp + 3 * (hash01(r.id, zi, seed) - 0.5))),
       };
     });
   });
   return homes;
 }
 
-/** How much a kind likes a wave (> 0). Surfers: big and steep; dolphins/seals: small and mellow; dolphins love barrels. */
+/** How much a kind likes a wave (> 0). Surfers: big and steep; dolphins/seals: small and mellow; dolphins love barrels;
+ *  the turtle only really wants small, soft waves. */
 export function fit(kind, zb) {
   const size = clamp01(zb.H / 3.5);
   if (kind === 'surfer') return Math.max(0.05, 0.25 + 0.45 * size + 0.35 * zb.steep + 0.25 * zb.curl - 0.2 * zb.mush);
   if (kind === 'dolphin') return Math.max(0.05, 0.25 + 0.35 * (1 - size) + 0.2 * (1 - zb.steep) + 0.8 * zb.curl);
+  if (kind === 'turtle') return Math.max(0.05, 0.2 + 0.6 * (1 - size) * (1 - size) + 0.3 * (1 - zb.steep) + 0.25 * zb.mush - 0.2 * zb.curl);
   return Math.max(0.05, 0.25 + 0.45 * (1 - size) + 0.35 * (1 - zb.steep) + 0.15 * zb.mush);
 }
 
@@ -56,13 +63,16 @@ export function weightedPick(cands, h) {
 const CAP = ZONES.map((Z) => ({ outer: 1, point: 3, inside: 2 })[Z.key] ?? 2);    // riders a lineup holds
 const PULL = ZONES.map((Z) => ({ outer: 0, point: 12, inside: 2 })[Z.key] ?? 0);   // the point is the main break
 
-/** Lineup to return to after a ride: cheapest of the rider's zones (travel time, crowding, preference rank). */
-export function pickHome(r, b, x, z, all) {
+/**
+ * Lineup to return to after a ride: cheapest of the rider's zones (travel time, crowding, preference rank).
+ * exclude = a zone index not to pick (a restless rider leaving its lineup); returns b.homeZi if nothing else fits.
+ */
+export function pickHome(r, b, x, z, all, exclude = -1) {
   let best = b.homeZi, bestC = Infinity;
   for (let k = 0; k < r.zones.length; k++) {
     const zi = ZONES.findIndex((Z) => Z.key === r.zones[k]);
     const h = b.homes[zi];
-    if (!h) continue;
+    if (!h || zi === exclude) continue;
     let crowd = 0;
     for (const o of all) if (o.r !== r && o.b.homeZi === zi) crowd++;
     const c = Math.hypot(h.x - x, h.z - z) / KINDS[r.kind].vRet + 8 * Math.max(0, crowd + 1 - CAP[zi]) + 2 * k - PULL[zi];
@@ -138,7 +148,7 @@ function nextIdle(r, b, t, seed, home, prev) {
     return { type: surf ? 'surface' : 'circle', t0: t, t1: t + (surf ? 1.1 : 3.5 + 3 * h(2)), tc: t,
       rho0, phi0, R: prev ? prev.R : 3.5 + 1.5 * h(7), w };
   }
-  // seal: float, roll, dive
+  // seal / turtle: float, roll, dive
   if (prev && prev.type === 'float') {
     const k = h(1);
     if (k < 0.4) return { type: 'roll', t0: t, t1: t + 1.2, ax: x, az: z };

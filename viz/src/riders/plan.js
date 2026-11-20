@@ -45,6 +45,7 @@ export const KIND_PLAN = {
   surfer:  { glide: 9,  back: 6,  paddle: 0.5,  tauPop: -0.35, popDur: 0.45, depth: 0 },
   dolphin: { glide: 16, back: 10, paddle: 0.35, tauPop: -0.30, popDur: 0.35, depth: 0.12 },   // back + fin out
   seal:    { glide: 8,  back: 5,  paddle: 0.45, tauPop: -0.30, popDur: 0.40, depth: 0.06 },   // head + back out
+  turtle:  { glide: 7,  back: 4,  paddle: 0.5,  tauPop: -0.30, popDur: 0.45, depth: 0.08 },   // shell just awash
 };
 
 /** Planned ride length (s after the pop): [base, jitter]. Long on purpose: the peel end normally ends the ride. */
@@ -69,6 +70,7 @@ export const tauAt = (wf, s, t) => (t - breakStartTime(wf.zb, uOfS(wf, s))) / wf
 /** Ride style from the wave (and the rider's kind). */
 export function chooseStyle(kind, zb) {
   if (kind === 'seal') return 'breach';
+  if (kind === 'turtle') return 'cruise';                    // glides along low on the face
   const bt = zb.closeout ? 0 : zb.quality?.barrelTime ?? 0;
   if (kind === 'dolphin') return zb.curl >= 0.5 && bt >= 0.5 ? 'tube' : 'porpoise';
   if (zb.curl >= 0.5 && bt >= 0.5) return 'tube';            // field.barrel() needs curl ≳ 0.5 for a real tube
@@ -134,10 +136,11 @@ export function buildPlan({ wf, kind, style, seed, tC, sC, hC, tauBias = 0 }) {
     add(s, 0.3, surfer ? 'bottomTurn' : 'swim', 0.8);
     while (tk < tEnd + 2) { s += 5 + j(1); add(s, 0.2 + j(0.08), surfer ? 'trim' : 'swim', 1.0 + j(0.2)); }
   } else if (style === 'cruise') {
-    add(-0.35 + j(0.05), 0.35, 'bottomTurn', 1.0 + j(0.1), true);
+    const hi = surfer ? 0.72 : 0.55, lo = surfer ? 0.48 : 0.38;   // animals (turtle) cruise lower on the face
+    add(-0.35 + j(0.05), 0.35, surfer ? 'bottomTurn' : 'swim', 1.0 + j(0.1), true);
     while (tk < tEnd + 2) {
-      add(-0.45 + j(0.06), 0.72 + j(0.06), 'trim', 1.5 + j(0.3), true);
-      add(-0.55 + j(0.06), 0.48 + j(0.06), 'trim', 1.5 + j(0.3), true);
+      add(-0.45 + j(0.06), hi + j(0.06), surfer ? 'trim' : 'swim', 1.5 + j(0.3), true);
+      add(-0.55 + j(0.06), lo + j(0.06), surfer ? 'trim' : 'swim', 1.5 + j(0.3), true);
     }
   } else if (style === 'carve') {
     while (tk < tEnd + 2) {
