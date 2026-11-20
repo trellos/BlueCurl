@@ -17,3 +17,4 @@
 - Incident: WP8 force-killed the kapture-mcp node process by mistake during testing; the user may need to restart that MCP server.
 - WP6a landed (ce22668): every point wave ridden in demo-basic; styles cruise/carve/tube/porpoise/breach. To improve: rides short (2–6 s, short fast peels); jolt at catch (rider snaps to crest speed, up to 25 m/s at the outer line); possible double submerge with WP6b.
 - WP6b landed (2f2b499, c721b79): riders read close-up and in PiP; in the wide view (~290 m) they are 2–6 px. Pending decision after WP4b: wide-view rider markers and/or larger riderScale. WP6b asks WP6a for prevAction/prevActionT/actionStart and a position trail.
+- WP4b landed: wave meshes 256×64 per front (≤12 pooled), ~2.1 ms GPU @1080p with 6 fronts. Wave meshes draw before the ocean (renderOrder −1) so the ocean isn't shaded twice under them. Open: lip-landing crease line; whitewater flat at wide distance; PiP re-draws wave geometry (~0.5 ms).
