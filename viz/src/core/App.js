@@ -37,6 +37,13 @@ export function setPath(obj, key, value) {
   }
   o[parts[parts.length - 1]] = value;
 }
+export function mergeDeep(dst, src) {
+  for (const [k, v] of Object.entries(src || {})) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && dst[k] && typeof dst[k] === 'object' && !Array.isArray(dst[k])) mergeDeep(dst[k], v);
+    else dst[k] = v;
+  }
+  return dst;
+}
 export function getPath(obj, key) {
   return String(key).split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 }
@@ -49,6 +56,7 @@ export class App {
     this.opts = opts;
     this.capture = !!opts.capture;
     this.cfg = opts.cfg;
+    this.baseCfg = structuredClone(opts.cfg);      // cfg at t = 0; replays restore it (state = f(cfg, log))
     this.paused = false;
     this.clock = new FixedClock(DT);
     this.fixedSize = !!(opts.width && opts.height);
@@ -171,8 +179,17 @@ export class App {
   /** Advance the sim by `sec` (fixed steps, sim only). Returns steps run. */
   advanceSim(sec) { return this.clock.advance(sec, this._stepFn); }
 
-  /** Rewind to t = 0 with a fresh sim (input log kept), then fast-forward sim-only to t0. */
+  /** Restore app.cfg in place (same object: systems hold references) to the t = 0 config. */
+  restoreCfg() {
+    for (const k of Object.keys(this.cfg)) delete this.cfg[k];
+    Object.assign(this.cfg, structuredClone(this.baseCfg));
+    const a = this.cfg.ambient;
+    this.waterUniforms.uAmbient.value.set(a.amp, a.period, a.amp2, a.period2);
+  }
+
+  /** Rewind to t = 0 with a fresh sim and the t = 0 config (input log kept), then fast-forward sim-only to t0. */
   resetSim(t0 = 0) {
+    this.restoreCfg();
     this.clock.reset(0);
     this.input.reset();
     this.swell.reset?.();
@@ -181,7 +198,15 @@ export class App {
     if (t0 > 0) this.advanceSim(t0);
   }
 
+  /**
+   * Load an input log (array) or a demo ({cfg, log}: cfg is merged over the current t = 0 config).
+   * reset (default): rewind to t = 0 and replay sim-only to t0.
+   */
   loadInput(log, { reset = true, t0 = 0 } = {}) {
+    if (log && !Array.isArray(log) && typeof log === 'object') {
+      if (log.cfg) { mergeDeep(this.baseCfg, log.cfg); if (!reset) mergeDeep(this.cfg, log.cfg); }
+      log = log.log;
+    }
     this.input.load(Array.isArray(log) ? log : []);
     if (reset) this.resetSim(t0);
     return this.simTime;

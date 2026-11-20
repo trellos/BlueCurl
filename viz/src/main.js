@@ -4,10 +4,10 @@
 //      ?t0=<s> (sim-only fast-forward at boot) · ?w=&h= (fixed canvas size, pixel ratio 1) · ?nohud
 //      ?dpr=<n> (live pixel ratio, default 1) · ?piptest=1 (second Post composited bottom-right)
 //      any DEFAULT_CFG key, dotted allowed: ?bpm=100&bars=2&pip.enabled=0
-// Hooks: __ready (Promise) · __advance(sec) → simTime · __simTime() · __loadInput(log, {reset, t0})
+// Hooks: __ready (Promise) · __advance(sec) → simTime · __simTime() · __loadInput(log | {cfg, log}, {reset, t0})
 //        __setCfg(k, v) · __grab() → PNG data URL · __bench(n) → GPU ms · __app · window.bluecurl
 import { DEFAULT_CFG } from './contracts.js';
-import { App, setPath, getPath } from './core/App.js';
+import { App, setPath, getPath, mergeDeep } from './core/App.js';
 
 const qs = new URLSearchParams(location.search);
 const flag = (k) => qs.has(k) && qs.get(k) !== '0' && qs.get(k) !== 'false';
@@ -17,14 +17,6 @@ function parseValue(raw, def) {
   if (typeof def === 'boolean') return !(raw === '0' || raw === 'false' || raw === 'off');
   if (typeof def === 'number') return Number(raw);
   try { return JSON.parse(raw); } catch { return raw; }
-}
-
-function deepMerge(dst, src) {
-  for (const [k, v] of Object.entries(src || {})) {
-    if (v && typeof v === 'object' && !Array.isArray(v) && dst[k] && typeof dst[k] === 'object' && !Array.isArray(dst[k])) deepMerge(dst[k], v);
-    else dst[k] = v;
-  }
-  return dst;
 }
 
 function showError(e) {
@@ -44,7 +36,7 @@ async function boot() {
     if (!res.ok) throw new Error(`demo ${qs.get('demo')}: HTTP ${res.status}`);
     const demo = await res.json();
     if (Array.isArray(demo)) log = demo;
-    else { if (demo.cfg) deepMerge(cfg, demo.cfg); log = demo.log || []; }
+    else { if (demo.cfg) mergeDeep(cfg, demo.cfg); log = demo.log || []; }
   }
   for (const [k, raw] of qs) {
     const def = getPath(DEFAULT_CFG, k);
