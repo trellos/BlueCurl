@@ -2,7 +2,9 @@
 //
 // URL: ?capture=1 (no RAF, preserveDrawingBuffer, manual stepping) · ?demo=<path> (array log or {cfg, log})
 //      ?t0=<s> (sim-only fast-forward at boot) · ?w=&h= (fixed canvas size, pixel ratio 1) · ?nohud
-//      ?dpr=<n> (live pixel ratio, default 1) · ?piptest=1 (second Post composited bottom-right)
+//      ?dpr=<n> (live pixel ratio, default 1)
+//      read by the CameraRig itself (WP7, debug): ?fakeride=1|all (fake-ride fixture) · ?fakewave=1 (debug wave
+//      patch around the fake ride) · ?zonelines=1 (zone break lines) · ?widecam=px,py,pz,tx,ty,tz,fov (wide pose)
 //      any DEFAULT_CFG key, dotted allowed: ?bpm=100&bars=2&pip.enabled=0
 // Hooks: __ready (Promise) · __advance(sec) → simTime · __simTime() · __loadInput(log | {cfg, log}, {reset, t0})
 //        __setCfg(k, v) · __grab() → PNG data URL · __bench(n) → GPU ms · __app · window.bluecurl
@@ -49,7 +51,7 @@ async function boot() {
   const app = new App({
     canvas, cfg, capture,
     width: W > 0 && H > 0 ? W : 0, height: W > 0 && H > 0 ? H : 0,
-    pixelRatio: num('dpr', 1), hud: !qs.has('nohud'), piptest: flag('piptest'),
+    pixelRatio: num('dpr', 1), hud: !qs.has('nohud'),
   });
   window.__app = app;
   window.bluecurl = {

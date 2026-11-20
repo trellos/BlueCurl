@@ -174,15 +174,35 @@ uniform sampler2D uIn0;
 uniform sampler2D uIn1;
 uniform int uCascade;
 uniform float uChopK;
-layout(location = 1) out vec4 outS;
+uniform int uOut;           // 0: displacement D, 1: slopes S (one attachment per pass, see DOWNMIP)
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   ivec2 q = ivec2(p.x + uCascade * ${OCEAN_N}, p.y);
   vec4 a = texelFetch(uIn0, q, 0);
   vec4 b = texelFetch(uIn1, q, 0);
   float h = a.x, sx = a.y, sz = a.z, dx = a.w, dz = b.x;
-  gl_FragColor = vec4(dx * uChopK, h, dz * uChopK, 0.0);
-  outS = vec4(sx, sz, sx * sx, sz * sz);
+  gl_FragColor = uOut == 0 ? vec4(dx * uChopK, h, dz * uChopK, 0.0) : vec4(sx, sz, sx * sx, sz * sz);
+}`;
+
+// Mip chain built with our own passes (2x2 box = the same filter as glGenerateMipmap, so the slope
+// second moments stay exact LEAN statistics). BlueCurl change: under ANGLE/D3D11, generateMipmap on the
+// MRT half-float 2D-array target, and also rendering a second MRT attachment of 2D-array targets, randomly
+// corrupted the slope mips. Every 2D-array target is now single-attachment: displacement and slopes each
+// have their own mipmapped array and their own scratch pyramid, written one pass per layer and level.
+// uCopy = 1: copy level 0 of the source layer; else average 2x2 texels of the source layer.
+const DOWNMIP = /* glsl */ `
+precision highp float;
+precision highp int;
+precision highp sampler2DArray;
+uniform sampler2DArray uIn;
+uniform int uLayer;
+uniform int uCopy;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  if (uCopy == 1) { gl_FragColor = texelFetch(uIn, ivec3(p, uLayer), 0); return; }
+  ivec2 q = p * 2;
+  gl_FragColor = 0.25 * (texelFetch(uIn, ivec3(q, uLayer), 0) + texelFetch(uIn, ivec3(q + ivec2(1, 0), uLayer), 0)
+                       + texelFetch(uIn, ivec3(q + ivec2(0, 1), uLayer), 0) + texelFetch(uIn, ivec3(q + ivec2(1, 1), uLayer), 0));
 }`;
 
 export class OceanFFT {
@@ -206,15 +226,26 @@ export class OceanFFT {
     const options = { type: THREE.HalfFloatType, minFilter: THREE.LinearMipmapLinearFilter,
       magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping,
       depthBuffer: false, stencilBuffer: false, generateMipmaps: true };
-    this.cascades = new THREE.WebGLArrayRenderTarget(N, N, 3, options);
-    const slopes = new THREE.DataArrayTexture(null, N, N, 3);
-    Object.assign(slopes, options, {isRenderTargetTexture: true});
-    this.cascades.textures.push(slopes);
-    this.cascades.textures.forEach(t => { t.colorSpace = THREE.NoColorSpace; t.anisotropy = 8; });
+    const single = () => {
+      const rt = new THREE.WebGLArrayRenderTarget(N, N, 3, options);
+      rt.texture.colorSpace = THREE.NoColorSpace; rt.texture.anisotropy = 8;
+      return rt;
+    };
+    this.dispRT = single();
+    this.slopeRT = single();
+    this.cascades = { textures: [this.dispRT.texture, this.slopeRT.texture] };   // (sampled: D, S)
+    this.levels = Math.log2(N) + 1;
+    // scratch chain: level l of the pyramid as its own (non-mipmapped, float) target, the source of level l+1
+    const scratch = { type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+      depthBuffer: false, stencilBuffer: false, generateMipmaps: false };
+    const scratchRT = (n) => { const rt = new THREE.WebGLArrayRenderTarget(n, n, 3, scratch); rt.texture.colorSpace = THREE.NoColorSpace; return rt; };
+    this.chain = [[], []];                 // [D | S][level]
+    for (let k = 0; k < 2; k++) for (let l = 0; l < this.levels - 1; l++) this.chain[k].push(scratchRT(N >> l));
+    this.pMip = new FullscreenPass(makeShader(DOWNMIP, { uIn: { value: null }, uLayer: { value: 0 }, uCopy: { value: 0 } }));
     const L = new THREE.Vector3(...OCEAN_L);
     this.pSpec = new FullscreenPass(makeShader(SPECTRUM, { uH0: { value: this.h0 }, uT: { value: 0 }, uL: { value: L } }));
     this.pFFT = new FullscreenPass(makeShader(FFT, { uIn0: { value: null }, uIn1: { value: null }, uSub: { value: 2 }, uHoriz: { value: 1 } }));
-    this.pCompose = new FullscreenPass(makeShader(COMPOSE, { uIn0: { value: null }, uIn1: { value: null }, uCascade: { value: 0 }, uChopK: { value: 1 } }));
+    this.pCompose = new FullscreenPass(makeShader(COMPOSE, { uIn0: { value: null }, uIn1: { value: null }, uCascade: { value: 0 }, uChopK: { value: 1 }, uOut: { value: 0 } }));
     this.time = NaN;
   }
 
@@ -226,8 +257,9 @@ export class OceanFFT {
     if (t === this.time) return;
     this.time = t;
     if (!this.initialized) {
-      // Allocate the full mip chains while generateMipmaps is enabled.
-      renderer.initRenderTarget?.(this.cascades);
+      // Allocate the full mip chains (immutable storage) while generateMipmaps is enabled, then never let
+      // three call generateMipmap on it: the levels are written by our own passes below.
+      for (const rt of [this.dispRT, this.slopeRT]) { renderer.initRenderTarget?.(rt); rt.texture.generateMipmaps = false; }
       this.initialized = true;
     }
     const prev = renderer.getRenderTarget();
@@ -246,11 +278,32 @@ export class OceanFFT {
     }
     const cu = this.pCompose.material.uniforms;
     cu.uIn0.value = src.textures[0]; cu.uIn1.value = src.textures[1];
-    for (let c = 0; c < 3; c++) {
-      cu.uCascade.value = c; cu.uChopK.value = OCEAN_CHOP[c];
-      // Build both mip chains only after every array layer is current.
-      this.cascades.textures.forEach(texture => { texture.generateMipmaps = c === 2; });
-      this.pCompose.render(renderer, this.cascades, c);
+    for (let k = 0; k < 2; k++) {
+      cu.uOut.value = k;
+      for (let c = 0; c < 3; c++) {
+        cu.uCascade.value = c; cu.uChopK.value = OCEAN_CHOP[c];
+        this.pCompose.render(renderer, this.chain[k][0], c);
+      }
+    }
+    // level 0 = copy of the composed field; level l = 2x2 average of scratch level l-1, written to the
+    // sampled mipmapped array and (except for the last level) to scratch level l, the source of l + 1
+    const mu = this.pMip.material.uniforms;
+    const N = OCEAN_N;
+    for (let k = 0; k < 2; k++) {
+      const dst = k === 0 ? this.dispRT : this.slopeRT, chain = this.chain[k];
+      for (let l = 0; l < this.levels; l++) {
+        mu.uIn.value = chain[Math.max(l - 1, 0)].texture;
+        mu.uCopy.value = l === 0 ? 1 : 0;
+        const size = Math.max(1, N >> l);
+        for (let c = 0; c < 3; c++) {
+          mu.uLayer.value = c;
+          dst.viewport.set(0, 0, size, size);
+          renderer.setRenderTarget(dst, c, l);
+          renderer.render(this.pMip.scene, this.pMip.camera);
+          dst.viewport.set(0, 0, N, N);
+          if (l > 0 && l < chain.length) this.pMip.render(renderer, chain[l], c);
+        }
+      }
     }
     renderer.setRenderTarget(prev, prevCube, prevMip);
   }

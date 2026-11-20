@@ -50,7 +50,7 @@ export function getPath(obj, key) {
 
 export class App {
   /**
-   * opts: { canvas, cfg, capture, width, height (fixed drawing-buffer size, else window), pixelRatio, hud, piptest }
+   * opts: { canvas, cfg, capture, width, height (fixed drawing-buffer size, else window), pixelRatio, hud }
    */
   constructor(opts) {
     this.opts = opts;
@@ -120,6 +120,8 @@ export class App {
     this.riderViews = new RiderViews(this);
     this.cameraRig = new CameraRig(this);
     this.visuals = [this.spot, this.waveMesh, this.fx, this.riderViews];
+    // every system, in step order; reset() is called on each that has it whenever the sim is rewound
+    this.systems = [this.swell, this.riders, this.spot, this.waveMesh, this.fx, this.riderViews, this.cameraRig];
 
     this._stepFn = (t, dt) => this.step(t, dt);
     this._bindKeys();
@@ -192,15 +194,19 @@ export class App {
     this.restoreCfg();
     this.clock.reset(0);
     this.input.reset();
-    this.swell.reset?.();
-    this.riders.reset?.();
-    for (const s of [...this.visuals, this.cameraRig]) s.reset?.();
+    this.resetSystems();
     if (t0 > 0) this.advanceSim(t0);
+  }
+
+  /** Call reset() on every system that has one (swell, riders, spot, waveMesh, fx, riderViews, cameraRig). */
+  resetSystems() {
+    for (const s of this.systems) if (s && typeof s.reset === 'function') s.reset();
   }
 
   /**
    * Load an input log (array) or a demo ({cfg, log}: cfg is merged over the current t = 0 config).
-   * reset (default): rewind to t = 0 and replay sim-only to t0.
+   * reset (default): rewind to t = 0, reset() every system and replay sim-only to t0. reset = false only
+   * swaps the log (no rewind, systems keep their state).
    */
   loadInput(log, { reset = true, t0 = 0 } = {}) {
     if (log && !Array.isArray(log) && typeof log === 'object') {
@@ -220,21 +226,7 @@ export class App {
     this.sky.update(t);
     for (const s of this.visuals) s.update?.(t);
     this.cameraRig.render(this);
-    if (this.opts.piptest) this._renderPipTest();
     this.hud.update(this, this.capture);
-  }
-
-  /** Debug (?piptest=1): a second Post at 1/3 size composited into the bottom-right corner. */
-  _renderPipTest() {
-    const b = this._bufferSize();
-    const pw = Math.round(b.x / 3), ph = Math.round(b.y / 3), m = Math.round(b.y * 0.02);
-    if (!this._pip) {
-      this._pip = this.createPost(pw, ph);
-      this._pipCam = new THREE.PerspectiveCamera(55, pw / ph, 0.3, 20000);
-      this._pipCam.position.set(205, 5, 30);
-      this._pipCam.lookAt(330, 4, -30);
-    }
-    this._pip.render(this.scene, this._pipCam, null, { x: b.x - pw - m, y: m, w: pw, h: ph });
   }
 
   /** Render one frame with a GPU timer query around it (live loop). */
