@@ -11,7 +11,7 @@ import { depthAt, headlandS, xBay, SPOT } from './bathymetry.js';
 export const SPOT_CAMERAS = {
   default: { pos: [-70, 54, 90], target: [150, 0, -37], fov: 55 },
   // mirrors of WP7's src/camera/wide.js presets (the test asserts they match) so props keep their sightlines clear
-  lineup: { pos: [0, 48, 60], target: [130, -14, -15], fov: 72 },
+  lineup: { pos: [0, 55, 70], target: [130, -6, -10], fov: 72 },
   point: { pos: [0, 30, 30], target: [130, -6, -35], fov: 66 },
 };
 
