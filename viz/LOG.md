@@ -22,3 +22,4 @@
 - Fix round 1 decisions: wide camera moves closer/lower onto the point (whole lineup still in frame, inside zone may sit at the edge); PATH inside/shore slowed to +13/+19 s for longer peels; no floating rider markers (keep stylised realism) — use wakes + rim light + riderScale instead; energised fronts keep a colour-coded glowing shimmer line all the way in.
 - WP8 video mode (ebbcb62): segmented ffmpeg streaming, 69 fps @720p, ~17 KB/frame, resumable (framemd5-identical).
 - WP1 fix (5ea9b64): D3D11 FFT corruption fixed (separate single-texture targets + own mip passes; fresh-page same-t diff 0 px, was up to 106k px). Remaining D3D11 diff = 1-LSB fx sprites only. `?piptest` removed; log reload resets all systems.
+- WP6a fix (b5e66d7): take-off 0.7–0.95 s; rides run to the peel end (up to 9.8 s standing); eased catch; prevAction/actionStart/trail for WP6b. Barrel tubes on set 2 (outer 1.3 s, point 1.2 s).
