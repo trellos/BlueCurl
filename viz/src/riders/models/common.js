@@ -179,7 +179,7 @@ export function finGeometry(outline, thick) {
  * edges that face the sun glow, and silhouettes seen against the sun get a thin hot outline so they read on
  * the backlit water from 200 m. uniforms.uRim (strength) is shared so a viewer can tune it.
  */
-export function riderMaterial(sunDir, { roughness = 0.6, rim = 1.0, sheen = 0.0, emissive = 0.0 } = {}) {
+export function riderMaterial(sunDir, { roughness = 0.6, rim = 1.5, sheen = 0.0, emissive = 0.0 } = {}) {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness, metalness: 0.0 });
   const u = {
     uRSun: { value: sunDir },
@@ -206,8 +206,8 @@ uniform vec3 uRSun; uniform vec3 uRimColor; uniform float uRim; uniform float uS
   // readability at range: the rim widens/brightens and the albedo lifts a little with distance, so the riders'
   // colours and silhouettes still pop from the wide camera (150–300 m) without changing the close-up look
   float far = smoothstep(50.0, 220.0, length(vViewPosition));
-  rim *= 1.0 + 1.5 * far;
-  rim += uRimColor * (0.35 + 0.65 * diffuseColor.rgb) * pow(1.0 - ndv, 1.2) * far * 0.6 * (0.3 + 0.7 * back);
+  rim *= 1.0 + 2.5 * far;
+  rim += uRimColor * (0.35 + 0.65 * diffuseColor.rgb) * pow(1.0 - ndv, 1.2) * far * 0.9 * (0.3 + 0.7 * back);
   totalEmissiveRadiance += rim * uRim + diffuseColor.rgb * (uSelfLit + 0.22 * far);
   totalEmissiveRadiance += vec3(0.9, 0.95, 1.0) * uSheen * pow(1.0 - ndv, 4.0) * 0.4;   // wet sheen
 }`);

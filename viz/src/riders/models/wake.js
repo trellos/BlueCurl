@@ -6,9 +6,9 @@
 import * as THREE from 'three';
 import { hash01 } from '../../contracts.js';
 
-export const WAKE_N = 22;           // ribbon stations
-export const WAKE_T = 1.3;          // s of path shown
-export const SPRAY_N = 96;          // particles per rider
+export const WAKE_N = 32;           // ribbon stations
+export const WAKE_T = 2.4;          // s of path shown
+export const SPRAY_N = 128;          // particles per rider
 export const SPRAY_LIFE = 0.75;     // s
 
 const WAKE_VERT = /* glsl */ `
@@ -37,10 +37,14 @@ void main() {
   float edge = exp(-e1 * e1);
   float centre = (1.0 - smoothstep(0.0, 0.7, a)) * (1.0 - smoothstep(0.0, 0.45, age));
   float n = vnoise(vec2(vW.z * 2.2, vW.x * 3.0)) * 0.6 + vnoise(vec2(vW.z * 6.0, vW.x * 7.0 + 3.1)) * 0.4;
-  float foam = clamp((edge * 0.9 + centre) * smoothstep(0.25, 0.75, n) * 1.6, 0.0, 1.0);
+  // up close: broken, frothy lines; from the wide camera: solid white water lines (noise fades out with distance)
+  float far = smoothstep(40.0, 160.0, length(vWorld - cameraPosition));
+  float brk = mix(smoothstep(0.25, 0.75, n), 0.6 + 0.4 * n, far);
+  float edgeW = exp(-e1 * e1 * mix(1.0, 0.45, far));
+  float foam = clamp((edgeW * mix(0.9, 1.1, far) + centre * mix(0.55, 1.0, far)) * brk * mix(1.15, 2.2, far), 0.0, 1.0);
   foam *= 1.0 - smoothstep(0.85, 1.0, a);
-  float alpha = foam * vW.w * pow(1.0 - age, 1.3);
-  vec3 col = vec3(0.92, 0.9, 0.86) * (uSunColor * 0.32 + uSkyAmb * 1.25);
+  float alpha = foam * vW.w * pow(1.0 - age, 1.1);
+  vec3 col = vec3(0.95, 0.93, 0.9) * (uSunColor * 0.55 + uSkyAmb * 2.0);
   gl_FragColor = vec4(col * alpha, alpha);   // premultiplied
 }`;
 
@@ -55,7 +59,7 @@ void main() {
   vDir = normalize(w.xyz - cameraPosition);
   vec4 mv = viewMatrix * w;
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = clamp(aS.x * uProj / max(-mv.z, 0.1), 1.5, 96.0);
+  gl_PointSize = clamp(aS.x * uProj / max(-mv.z, 0.1), 1.5, 18.0);
 }`;
 const SPRAY_FRAG = /* glsl */ `
 uniform vec3 uSunColor, uSkyAmb, uSunDir;
@@ -65,12 +69,12 @@ void main() {
   vec2 c = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(c, c);
   if (r2 > 1.0) discard;
-  float soft = (1.0 - r2) * (1.0 - r2);
+  float soft = 1.0 - smoothstep(0.35, 1.0, r2);
   // backlit droplets: Henyey-Greenstein forward scatter toward the camera when it looks into the sun
   float g = 0.72, mu = dot(vDir, normalize(uSunDir));
   float hg = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * mu, 1.5) / 12.566;
   vec3 col = vec3(0.95, 0.94, 0.92) * (uSkyAmb * 3.2 + uSunColor * (0.5 + 5.0 * hg));
-  float a = vA * soft * 0.75;
+  float a = vA * soft * 0.85;
   gl_FragColor = vec4(col * a, a);
 }`;
 
@@ -137,7 +141,7 @@ export class Wake {
         if (i > 0) dist += Math.hypot(_p.x - px, _p.y - py, _p.z - pz);
         px = _p.x; py = _p.y; pz = _p.z;
         const a01 = age / WAKE_T;
-        const w = o.width * (0.45 + 1.6 * Math.sqrt(a01));
+        const w = o.width * o.scale * (0.5 + 1.8 * Math.sqrt(a01));
         for (let k = 0; k < 2; k++) {
           const sd = k === 0 ? -1 : 1, j = 2 * i + k;
           P[3 * j] = _p.x + _s.x * w * sd; P[3 * j + 1] = _p.y + 0.04; P[3 * j + 2] = _p.z + _s.z * w * sd;
@@ -177,7 +181,7 @@ export class Wake {
       S[3 * j] = _p.x + vx * age; S[3 * j + 1] = _p.y + 0.1 + vy * age - 0.5 * g * age * age; S[3 * j + 2] = _p.z + vz * age;
       const a01 = age / SPRAY_LIFE;
       const k = burst ? o.burst : o.spray;
-      A[2 * j] = (0.03 + 0.08 * h4) * sc * (1 + 1.2 * a01);
+      A[2 * j] = (0.025 + 0.05 * h4) * sc * (1 + 0.6 * a01);
       A[2 * j + 1] = k * (1 - a01) * (1 - a01) * (S[3 * j + 1] < _p.y - 0.2 ? 0 : 0.9);
     }
     this.spray.geometry.attributes.position.needsUpdate = true;

@@ -64,31 +64,31 @@ export function evalPose(kind, r, t) {
 }
 
 /** Wake/spray parameters for a rider. */
-function wakeParams(kind, r, a, goofy) {
+function wakeParams(kind, r, a, goofy, t = 0) {
   const act = r.action || 'idle', s = clamp(r.actionT ?? 0, 0, 1), v = r.speed || 0;
   const o = { wake: 0, width: 0.45, spray: 0, side: 0, lift: 0, burst: 0, tailBack: 0.6 };
   const riding = RIDE_ACTIONS.has(act) || r.state === 'RIDE';
   const mirror = goofy ? -1 : 1;
   const env = Math.sin(Math.PI * s);
   if (kind === 'surfer') {
-    if (act === 'paddle' || act === 'swim') { o.wake = 0.45 * smooth(0.2, 1.2, v); o.width = 0.35; o.tailBack = 0.2; }
+    if (act === 'paddle' || act === 'swim') { o.wake = 0.55 * smooth(0.2, 1.2, v); o.width = 0.4; o.tailBack = 0.2; }
     else if (act === 'idle') o.wake = 0;
     else if (act === 'wipe') { o.wake = 0.6 * (1 - smooth(0, 0.3, s)); o.burst = 0.8 * smooth(0.25, 0.35, s) * (1 - smooth(0.45, 0.65, s)); o.tailBack = -1.5; }
     else {
       o.wake = smooth(1.0, 5.0, v) * (act === 'pop' ? smooth(0.2, 0.8, s) : 1);
-      o.width = 0.5;
-      if (act === 'bottomTurn') { o.spray = 0.8 * env; o.side = -mirror; }
+      o.width = 0.75;
+      if (act === 'bottomTurn') { o.spray = 0.9 * env; o.side = -mirror; o.lift = 0.8; }
       else if (act === 'cutback') { o.spray = 1.0 * env; o.side = mirror; o.lift = 1.5; }
       else if (act === 'lipHit') { o.spray = 1.0 * smooth(0.3, 0.5, s) * (1 - smooth(0.6, 0.9, s)); o.lift = 3.5; o.side = 0; }
       else if (act === 'kickout') { o.spray = 0.7 * smooth(0.15, 0.3, s) * (1 - smooth(0.4, 0.6, s)); o.lift = 2; o.wake *= 1 - smooth(0.3, 0.5, s); }
-      else if (riding) o.spray = 0.18 * smooth(4, 9, v);
+      else if (riding) o.spray = 0.25 * smooth(3, 8, v) * (0.6 + 0.4 * Math.abs(Math.sin(t * 2.1 + r.id)));
     }
   } else {
     const jump = act === 'jump' || act === 'kickout';
     if (jump) { o.wake = 0; o.burst = 0.7 * (1 - smooth(0.0, 0.15, s)) + 0.9 * smooth(0.85, 0.97, s); o.tailBack = 0; }
     else if (act === 'wipe') { o.wake = 0.4; o.burst = 0.5 * env; }
-    else if (riding || r.state === 'TAKEOFF') { o.wake = 0.75 * smooth(1, 4, v); o.width = kind === 'dolphin' ? 0.3 : 0.38; o.spray = 0.3 * smooth(3, 8, v); o.tailBack = kind === 'dolphin' ? 0.05 : 0.3; o.lift = -0.8; }
-    else if (act === 'swim' || act === 'paddle') { o.wake = 0.35 * smooth(0.3, 1.5, v); o.width = 0.3; o.tailBack = 0.2; }
+    else if (riding || r.state === 'TAKEOFF') { o.wake = 0.9 * smooth(1, 4, v); o.width = kind === 'dolphin' ? 0.45 : 0.5; o.spray = 0.3 * smooth(3, 8, v); o.tailBack = kind === 'dolphin' ? 0.05 : 0.3; o.lift = -0.8; }
+    else if (act === 'swim' || act === 'paddle') { o.wake = 0.5 * smooth(0.3, 1.5, v); o.width = 0.4; o.tailBack = 0.2; }
   }
   return o;
 }
@@ -192,7 +192,7 @@ export class RiderViews {
       e.model.apply(F, a);
       e.model.group.visible = true;
       const goofy = e.kind === 'surfer' && e.model.look?.goofy;
-      const wp = wakeParams(e.kind, r, a, goofy);
+      const wp = wakeParams(e.kind, r, a, goofy, t);
       wp.scale = scale;
       wp.fwd = _x.set(r.fwd?.x ?? 1, 0, r.fwd?.z ?? 0).normalize().clone();
       wp.right = new THREE.Vector3(-wp.fwd.z, 0, wp.fwd.x);

@@ -106,9 +106,9 @@ export const POSES = {
   crouchUp: P({ hip: [-0.06, 0.62, 0.0], pUp: [0.1, 0.95, 0.2], pFwd: [0.35, -0.2, 1], cUp: [0.2, 0.8, 0.5], cFwd: [0.45, -0.5, 1],
     hUp: [0, 1, -0.1], hFwd: [1, -0.1, 0.4], fL: [0.28, 0.14, 0.0], fR: [-0.4, 0.14, 0.0], tL: [0.55, 0, 1], tR: [0.08, 0, 1],
     kL: [0.4, 0, 1], kR: [0.3, 0, 1], hL: [0.45, 0.55, 0.3], hR: [-0.45, 0.6, 0.2], eL: [0, -1, -0.3], eR: [0, -1, -0.3] }),
-  bottomTurn: P({ hip: [-0.07, 0.72, 0.06], pUp: [0.05, 0.93, 0.3], pFwd: [0.35, -0.25, 1], cUp: [0.12, 0.85, 0.45], cFwd: [0.45, -0.4, 1],
+  bottomTurn: P({ hip: [-0.06, 0.78, 0.05], pUp: [0.04, 0.96, 0.22], pFwd: [0.35, -0.15, 1], cUp: [0.1, 0.92, 0.35], cFwd: [0.45, -0.25, 1],
     hUp: [0, 1, 0], hFwd: [1, 0.25, 0.35], fL: [0.28, 0.14, 0.0], fR: [-0.4, 0.14, 0.0], tL: [0.55, 0, 1], tR: [0.08, 0, 1],
-    kL: [0.45, 0, 1], kR: [0.3, 0, 1], hL: [0.55, 0.6, 0.75], hR: [-0.62, 0.95, -0.1], eL: [0.2, -1, 0.2], eR: [-0.2, -1, -0.5] }),
+    kL: [0.45, 0, 1], kR: [0.3, 0, 1], hL: [0.6, 0.8, 0.7], hR: [-0.62, 1.05, -0.1], eL: [0.2, -1, 0.2], eR: [-0.2, -1, -0.5] }),
   lipHit: P({ hip: [-0.1, 0.86, -0.02], pUp: [0.0, 1, 0.0], pFwd: [0.3, 0, 1], cUp: [0.05, 1, 0.1], cFwd: [0.6, 0.0, 1],
     hUp: [0, 1, 0.2], hFwd: [1, -0.45, 0.35], fL: [0.28, 0.14, 0.0], fR: [-0.4, 0.14, 0.0], tL: [0.55, 0, 1], tR: [0.08, 0, 1],
     kL: [0.4, 0, 1], kR: [0.3, 0, 1], hL: [0.6, 1.35, 0.25], hR: [-0.65, 1.2, 0.0], eL: [0.3, -0.5, -1], eR: [-0.3, -0.5, -1] }),
@@ -191,7 +191,7 @@ export function surferPose(action, s, t, seed, speed = 0) {
     case 'bottomTurn': {
       const e = env(s);
       pose = blendPose(POSES.stance, POSES.bottomTurn, e);
-      bm.roll = 0.6 * e;
+      bm.roll = 0.5 * e;
       break;
     }
     case 'lipHit': {
@@ -260,7 +260,7 @@ export class SurferModel {
   constructor(def, sunDir) {
     this.def = def;
     this.look = SURFER_LOOKS[def.name] || SURFER_LOOKS.Kai;
-    this.mat = riderMaterial(sunDir, { roughness: 0.55, rim: 1.0, sheen: 0.6 });
+    this.mat = riderMaterial(sunDir, { roughness: 0.55, rim: 1.5, sheen: 0.6 });
     this.group = new THREE.Group();                       // world: rider frame (pos, fwd, up) × riderScale
     this.group.name = 'surfer:' + def.name;
     this.boardFrame = new THREE.Group();                  // board-local action modifiers

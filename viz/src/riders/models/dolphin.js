@@ -100,7 +100,7 @@ export function dolphinPose(action, state, s, t, seed, speed = 0) {
 export class DolphinModel {
   constructor(def, sunDir) {
     this.def = def;
-    this.mat = riderMaterial(sunDir, { roughness: 0.32, rim: 1.0, sheen: 1.0 });
+    this.mat = riderMaterial(sunDir, { roughness: 0.32, rim: 1.5, sheen: 1.0 });
     this.group = new THREE.Group();
     this.group.name = 'dolphin:' + def.name;
     this.group.matrixAutoUpdate = false;

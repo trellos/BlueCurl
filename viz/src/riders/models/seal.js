@@ -102,7 +102,7 @@ const _m = new THREE.Matrix4(), _f = new THREE.Matrix4();
 export class SealModel {
   constructor(def, sunDir) {
     this.def = def;
-    this.mat = riderMaterial(sunDir, { roughness: 0.38, rim: 1.1, sheen: 1.0 });
+    this.mat = riderMaterial(sunDir, { roughness: 0.38, rim: 1.6, sheen: 1.0 });
     this.group = new THREE.Group();
     this.group.name = 'seal:' + def.name;
     this.group.matrixAutoUpdate = false;
