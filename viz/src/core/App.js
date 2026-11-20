@@ -2,8 +2,8 @@
 // system wiring defined in contracts.js "app / systems".
 //
 // Per sim step (t = time after the step):
-//   events = input.drainUntil(t) → cfg events applied to app.cfg → swell.step(t, DT, events)
-//   → riders.step(t, DT, swell) → fx.step(t, DT) → cameraRig.step(t, DT)
+//   events = input.drainUntil(t) → cfg events applied to app.cfg → swell.step(t, DT, events) → beat.step(t, DT, events)
+//   → riders.step(t, DT, swell, beat) → fx.step(t, DT) → cameraRig.step(t, DT)
 // Per rendered frame (t = simTime):
 //   ocean FFT(t) → spot/waveMesh/fx/riderViews.update(t) → cameraRig.render(app) → hud.update
 import * as THREE from 'three';
@@ -13,6 +13,9 @@ import { GpuTimer } from './gpuTimer.js';
 import { InputBus } from '../input/input.js';
 import { Swell } from '../sim/swell.js';
 import { Riders } from '../riders/Riders.js';
+import { Beat } from '../beat/beat.js';
+import { BeatAudio } from '../beat/BeatAudio.js';
+import { GuitarInput } from '../input/guitar.js';
 import { Spot } from '../spot/Spot.js';
 import { WaveMesh } from '../wave/WaveMesh.js';
 import { Fx } from '../fx/Fx.js';
@@ -112,6 +115,7 @@ export class App {
     this.input = new InputBus(() => this.simTime);
     this.input.bindKeyboard(window);
     this.swell = new Swell(this.cfg);
+    this.beat = new Beat(this.cfg);
     this.riders = new Riders(this.cfg);
     this.hud = new Hud(this, { visible: opts.hud !== false && this.cfg.hud !== false });
     this.spot = new Spot(this);
@@ -119,12 +123,15 @@ export class App {
     this.fx = new Fx(this);
     this.riderViews = new RiderViews(this);
     this.cameraRig = new CameraRig(this);
+    this.beatAudio = new BeatAudio(this);          // output only (live loop); never feeds the sim
+    this.guitarInput = new GuitarInput(this);      // sets app.guitar; mic starts on a user gesture
     this.visuals = [this.spot, this.waveMesh, this.fx, this.riderViews];
-    // every system, in step order; reset() is called on each that has it whenever the sim is rewound
-    this.systems = [this.swell, this.riders, this.spot, this.waveMesh, this.fx, this.riderViews, this.cameraRig];
+    // every system, in step order; reset() is called on each that has it whenever the sim is rewound (+ beatAudio)
+    this.systems = [this.swell, this.beat, this.riders, this.spot, this.waveMesh, this.fx, this.riderViews, this.cameraRig];
 
     this._stepFn = (t, dt) => this.step(t, dt);
     this._bindKeys();
+    window.addEventListener('pointerdown', () => this.beatAudio?.unlock());
     if (!this.fixedSize) window.addEventListener('resize', () => this.resize());
   }
 
@@ -147,6 +154,7 @@ export class App {
 
   _bindKeys() {
     window.addEventListener('keydown', (e) => {
+      this.beatAudio?.unlock();                  // any key is a user gesture: resume audio
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
       const tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -163,7 +171,8 @@ export class App {
       if (ev && ev.type === 'cfg' && ev.key != null) this.applyCfg(ev.key, ev.value);
     }
     this.swell.step(t, dt, events);
-    this.riders.step(t, dt, this.swell);
+    this.beat.step(t, dt, events);
+    this.riders.step(t, dt, this.swell, this.beat);
     this.fx.step?.(t, dt);
     this.cameraRig.step?.(t, dt);
   }
@@ -201,6 +210,7 @@ export class App {
   /** Call reset() on every system that has one (swell, riders, spot, waveMesh, fx, riderViews, cameraRig). */
   resetSystems() {
     for (const s of this.systems) if (s && typeof s.reset === 'function') s.reset();
+    this.beatAudio?.reset();
   }
 
   /**
@@ -226,6 +236,7 @@ export class App {
     this.sky.update(t);
     for (const s of this.visuals) s.update?.(t);
     this.cameraRig.render(this);
+    if (!this.capture) this.beatAudio.update(t);
     this.hud.update(this, this.capture);
   }
 
