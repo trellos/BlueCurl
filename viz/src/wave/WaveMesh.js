@@ -106,6 +106,11 @@ export class WaveMesh {
     this.hook = new OceanHook();
     this.hook.install(app.ocean);
     this.stats = { fronts: 0, verts: 0, spray: 0, sprayFronts: 0 };
+    // debug URL flag (dev only): ?wv=nospray,nofoam,nowave
+    const dbg = (typeof location !== 'undefined' && new URLSearchParams(location.search).get('wv')) || '';
+    this.debug = { nospray: dbg.includes('nospray'), nowave: dbg.includes('nowave') };
+    if (dbg.includes('nofoam')) { this.look.uFoamTune.value.z = 0; this.look.uFoamTune.value.w = 0; }
+    if (this.debug.nowave) this.group.visible = false;
     this._boxes = [];
   }
 
@@ -158,7 +163,7 @@ export class WaveMesh {
         down: 0.45 * c.Hmax * u.uAlpha.value + 0.3 });
       // spray
       activeSprayBreaks(f, t, s.breaks);
-      if (s.breaks.length && sprayFronts < SPRAY_MAX_FRONTS) {
+      if (s.breaks.length && sprayFronts < SPRAY_MAX_FRONTS && !this.debug.nospray) {
         const b = s.breaks;
         s.su.uSprayB.value.set(b[0] ?? 0, b[1] ?? 0, b[2] ?? 0, b.length);
         fillCrestHistory(this._xAt(f, tRef), t - tRef, s.su.uXHist.value, s.su.uXHistT.value);

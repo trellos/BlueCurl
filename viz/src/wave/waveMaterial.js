@@ -15,6 +15,7 @@
 // Back side of the sheet: the normal is flipped toward the viewer.
 import * as THREE from 'three';
 import { SKY_GLSL } from '../sky/skyModel.js';
+import { FRONT_Z0, FRONT_W } from '../contracts.js';
 import { WATER_COMMON_GLSL, BATHY_CHUNK, AMBIENT_CHUNK, CHOP_GLSL, waterShadingChunk } from '../water/waterShading.glsl.js';
 import { PROFILE_GLSL } from './profile.glsl.js';
 import { FOAM_GLSL } from './foam.glsl.js';
@@ -94,6 +95,7 @@ out vec3 vN;
 out vec4 vA;   // tau (clamped), tauU (unclamped), zi, H
 out vec4 vB;   // xi, yl, thick, sigma
 out vec4 vC;   // curl, mush, Tb, chop weight
+out float vFoamOK;  // 0 next to a jump in break phase along the crest (peel end, zone edge)
 ${SKY_GLSL}
 ${WATER_COMMON_GLSL}
 ${BATHY_CHUNK}
@@ -169,6 +171,15 @@ void main() {
   vA = vec4(col.tau, tauU, col.zi, col.H);
   vB = vec4(P.x, P.y, th, sg);
   vC = vec4(col.curl, col.mush, Tb, chopW);
+  // a tau jump between neighbouring columns would be interpolated across the triangle strip and sweep every
+  // foam window (a thin foam 'fishing line' across the sea): no foam on the columns either side of a jump
+  // graded: a jump within one column → 0 (hard kill in the fragment), within 2 / 3 columns → 1/3 / 2/3, so the
+  // foam also fades out softly over ~7 m toward a peel end or zone edge instead of stopping on a straight line
+  float tm2 = bcColumn(u - 2.0 * WV_DU, tl).tau;
+  float j1 = max(abs(cp.tau - col.tau), abs(tm2 - col.tau));
+  float j2 = max(abs(bcColumn(u + 4.0 * WV_DU, tl).tau - col.tau), abs(bcColumn(u - 4.0 * WV_DU, tl).tau - col.tau));
+  float j3 = max(abs(bcColumn(u + 6.0 * WV_DU, tl).tau - col.tau), abs(bcColumn(u - 6.0 * WV_DU, tl).tau - col.tau));
+  vFoamOK = min(1.0 - smoothstep(0.3, 0.7, j1), min(1.0 - 0.67 * smoothstep(0.5, 0.9, j2), 1.0 - 0.33 * smoothstep(0.7, 1.1, j3)));
   gl_Position = projectionMatrix * viewMatrix * vec4(vP, 1.0);
 }`;
 
@@ -191,6 +202,7 @@ in vec3 vN;
 in vec4 vA;
 in vec4 vB;
 in vec4 vC;
+in float vFoamOK;
 ${waterShadingChunk()}
 ${FOAM_GLSL}
 
@@ -264,6 +276,10 @@ void main() {
   // ---- foam
   float lipLine, fshade, fh;
   float fc = wvFoam(tauU, sg, xi, yl, H, vC.x, vC.y, vC.z, uFrontVX, vP, Nv, uClip.x, uAlpha, uTime, lipLine, fshade, fh);
+  float fok = smoothstep(0.0, 0.33, vFoamOK) * smoothstep(0.0, 1.0, vFoamOK);   // 0 on the jump strip, soft ramp beyond
+  float dzE = min(vP.z - (${FRONT_Z0.toFixed(1)}), ${(FRONT_Z0 + FRONT_W).toFixed(1)} - vP.z);
+  fok *= smoothstep(2.0, 22.0, dzE);               // fade out toward the crest ends (no hard foam edge at the mesh end)
+  fc *= fok; fh *= fok; lipLine *= fok;
   // foam relief: bump normal from the foam height (screen-space surface gradient), so lumps have lit tops and
   // shoreward sides in their own shade
   vec3 dpx = dFdx(vP), dpy = dFdy(vP);
