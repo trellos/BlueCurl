@@ -75,7 +75,18 @@ async function boot() {
   };
 
   // compile every program before the first frame (parallel where KHR_parallel_shader_compile exists)
+  // compileAsync only walks visible objects, so pooled/hidden ones (wave meshes, spray, riders ashore, fx pools) would
+  // compile on first use mid-play (0.7–1.3 s stalls). Show everything for the compile, then restore.
+  const hidden = [];
+  app.scene.traverse((o) => {
+    if (!o.visible) { hidden.push([o, 'visible', false]); o.visible = true; }
+    if (o.isInstancedMesh && o.count === 0) { hidden.push([o, 'count', 0]); o.count = 1; }
+  });
   try { await app.renderer.compileAsync(app.scene, app.camera); } catch (e) { console.warn('compileAsync', e); }
+  // compileAsync targets the canvas; frames draw into Post's render target (different output colour space → a
+  // different program), so also draw one throwaway frame through Post with everything shown
+  try { app.post.render(app.scene, app.camera); } catch (e) { console.warn('prewarm', e); }
+  for (const [o, k, v] of hidden) o[k] = v;
   app.render();
   if (!capture) app.start();
   return true;
