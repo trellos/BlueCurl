@@ -25,8 +25,8 @@ function warpedAxis(core, growLo, growHi, lim) {
 }
 
 export function buildTerrainGeometry() {
-  const xs = warpedAxis([[-30, 175, 3], [175, 420, 6], [420, 900, 15]], 1.14, 1.22, 4500);
-  const zs = warpedAxis([[-320, 25, 5], [25, 145, 2.5], [145, 340, 4]], 1.2, 1.2, 4500);
+  const xs = warpedAxis([[-110, -20, 4], [-20, 110, 2], [110, 260, 4], [260, 560, 10]], 1.14, 1.22, 4000);
+  const zs = warpedAxis([[-200, 15, 3.5], [15, 85, 1.8], [85, 210, 2.6]], 1.18, 1.18, 4000);
   const nx = xs.length, nz = zs.length;
   const pos = new Float32Array(nx * nz * 3);
   const mat = new Float32Array(nx * nz * 4);
@@ -40,7 +40,7 @@ export function buildTerrainGeometry() {
       const reef = smooth(-0.3, 1.2, others - p.reef);
       const shelf = Math.max(smooth(-0.3, 1.2, Math.min(others, p.reef) - p.shelf), smooth(-0.3, 1.0, Math.min(others, p.shelf) - p.plat));
       const head = smooth(-2, 6, p.s);                       // 1 on the headland
-      const jungle = smooth(-40, -120, p.xs) * (1 - head);   // hills behind the beach
+      const jungle = smooth(-25, -75, p.xs) * (1 - head);   // hills behind the beach
       mat[k * 4] = reef; mat[k * 4 + 1] = shelf; mat[k * 4 + 2] = head; mat[k * 4 + 3] = jungle;
       edge[k] = smooth(-6, 0, p.s) * (1 - smooth(7, 10.5, p.s));   // rock band: cliff toe → lip
     }
@@ -50,7 +50,7 @@ export function buildTerrainGeometry() {
     for (let i = 0; i < nx - 1; i++) {
       const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
       // skip cells that are deep and far out of view (keeps the budget for the near field)
-      const deep = -pos[a * 3 + 1] > 32 && -pos[d * 3 + 1] > 32 && -pos[b * 3 + 1] > 32 && -pos[c * 3 + 1] > 32;
+      const deep = -pos[a * 3 + 1] > 26 && -pos[d * 3 + 1] > 26 && -pos[b * 3 + 1] > 26 && -pos[c * 3 + 1] > 26;
       if (deep) continue;
       // split along the diagonal that follows the surface better
       const ya = pos[a * 3 + 1], yb = pos[b * 3 + 1], yc = pos[c * 3 + 1], yd = pos[d * 3 + 1];

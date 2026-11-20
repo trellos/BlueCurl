@@ -107,7 +107,7 @@ let camera;
 const view = q.get('view') || 'default';
 const camArg = q.get('cam');
 if (view === 'top' && !camArg) {
-  const cx = 160, cz = -20, half = 330;
+  const cx = 95, cz = -10, half = 200;
   camera = new THREE.OrthographicCamera(-half * W / H, half * W / H, half, -half, 1, 2000);
   camera.position.set(cx, 900, cz);
   camera.up.set(1, 0, 0);                  // sea (east) at the top, north to the right
@@ -115,8 +115,9 @@ if (view === 'top' && !camArg) {
   scene.fog = null;
 } else {
   let pose = SPOT_CAMERAS[view] || SPOT_CAMERAS.default;
-  if (view === 'low') pose = { pos: [420, 8, 60], target: [60, 12, 60], fov: 50 };
-  if (view === 'beach') pose = { pos: [10, 4, -150], target: [140, 10, 60], fov: 55 };
+  if (view === 'low') pose = { pos: [260, 6, 36], target: [36, 8, 36], fov: 50 };
+  if (view === 'beach') pose = { pos: [6, 3, -90], target: [84, 7, 36], fov: 55 };
+  if (view === 'old') pose = { pos: [40, 55, 150], target: [250, 0, -30], fov: 50 };
   if (camArg) { const a = camArg.split(',').map(Number); pose = { pos: a.slice(0, 3), target: a.slice(3, 6), fov: a[6] || 50 }; }
   camera = new THREE.PerspectiveCamera(pose.fov, W / H, 1, 20000);
   camera.position.fromArray(pose.pos);

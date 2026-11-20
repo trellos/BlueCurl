@@ -8,9 +8,9 @@ import { createBoulders, createStacks } from './rocks.js';
 import { createRimUniforms, patchRim } from './look.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-/** Default sun direction (toward the sun): ~6° elevation, ~12° south of east. */
+/** Default sun direction (toward the sun): ~6° elevation, ~18° south of east (matches sky/skyModel SUN). */
 export function defaultSunDir() {
-  const el = THREE.MathUtils.degToRad(6), az = THREE.MathUtils.degToRad(-12);
+  const el = THREE.MathUtils.degToRad(6), az = THREE.MathUtils.degToRad(-18);
   return new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)).normalize();
 }
 
@@ -76,13 +76,13 @@ export class Spot {
     // Standalone (dev page) the spot brings its own warm low sun + sky/ground hemisphere fill.
     const ownSun = !(app.sunLight && app.sunLight.isDirectionalLight);
     const sun = ownSun ? new THREE.DirectionalLight(0xffc68a, 3.0) : app.sunLight;
-    const focus = new THREE.Vector3(60, 0, 20);
+    const focus = new THREE.Vector3(20, 0, 10);
     sun.position.copy(focus).addScaledVector(sunDir, 900);
     sun.target.position.copy(focus);
     sun.target.updateMatrixWorld();
     sun.castShadow = true;
     const sc = sun.shadow.camera;              // ortho box around the headland + bay (sun ~6° up: long shadows)
-    sc.left = -340; sc.right = 340; sc.top = 110; sc.bottom = -110; sc.near = 300; sc.far = 1700;
+    sc.left = -230; sc.right = 230; sc.top = 80; sc.bottom = -80; sc.near = 400; sc.far = 1500;
     sc.updateProjectionMatrix();
     sun.shadow.mapSize.set(4096, 2048);
     sun.shadow.bias = -0.0004;
