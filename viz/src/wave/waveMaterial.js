@@ -206,6 +206,15 @@ void main() {
   }
   // smooth breaking water still has some roughness: spreads the sun lobe on the lip (no per-column glint bands)
   float brkF = 1.0 - vC.w;
+  // face texture where the chop is faded: faint streaks running down the face (world-anchored value noise)
+  if (brkF > 0.02) {
+    vec2 fq = vec2(vP.z, vP.y + 0.15 * vB.x);
+    #define WV_FH(q) (0.65 * bcVnoise(vec2((q).x * 1.1, (q).y * 0.28)) + 0.35 * bcVnoise(vec2((q).x * 3.3, (q).y * 0.9) + 7.1))
+    float h0 = WV_FH(fq), hz = WV_FH(fq + vec2(0.06, 0.0)), hy = WV_FH(fq + vec2(0.0, 0.06));
+    vec3 T1 = normalize(vec3(0.0, 0.0, 1.0) - Ns * Ns.z + vec3(1e-4, 0.0, 0.0));
+    vec3 T2 = normalize(cross(Ns, T1));
+    Ns = normalize(Ns - 0.07 * brkF * ((hz - h0) / 0.06 * T1 + (hy - h0) / 0.06 * T2));
+  }
   sig2 += vec2(0.03) * brkF;
   BcWater w = bcWater(vP, Ns, V);
   w.sig2 = sig2;
