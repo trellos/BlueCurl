@@ -58,6 +58,7 @@ async function boot() {
     impulse: (o) => app.input.impulse(o),
     release: (id, time = null) => app.input.release(id, time),
     setConfig: (k, v, time = null) => app.input.setConfig(k, v, time),
+    guitarNote: (o) => app.guitar?.guitarNote(o),     // { midi | midis, rms, root?, quality?, duration? } → { id, lanes, key }
   };
 
   app.loadInput(log, { reset: true, t0: num('t0', 0) });
