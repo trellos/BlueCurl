@@ -123,8 +123,9 @@ export const intervalSec = (cfg) => cfg.bars * 4 * 60 / cfg.bpm;
  *
  * Swell: constructor(cfg) · reset() · step(t, dt, events) · fronts: FrontState[] (alive, by id)
  *   · impulses: ImpulseFx[] (ring, last ~10 s) · events: SwellEvent[] (ring) · schedule {intervalSec, nextPointT}
- * ImpulseFx  { id, t, u, lane, lanes, strength, frontId|null, x, z, jump:boolean }  (x,z = where it landed;
- *            frontId null → pre-charge on the next scheduled front, shown at the horizon)
+ * ImpulseFx  { id, t, u, lane, lanes, strength, frontId, precharge:boolean, x, z, jump:boolean }  (x,z = where it
+ *            landed; precharge → the front has not spawned yet, show the hit as a glow at the horizon x)
+ * Extra fields (WP3): front.charge (total deposited), front.travel, front.tLine[zi], front.tShore; zb.stats; swell.targetId.
  * SwellEvent { t, type:'spawn'|'commit'|'break'|'die', frontId, zone? }
  */
 
@@ -224,7 +225,9 @@ export const RIDERS = [
  * Every system: optional step(t, dt) (fixed sim step, deterministic), update(t) (per rendered frame, pure
  * function of state + t), dispose(). Constructed as new X(app).
  * app = { renderer, scene, camera (main view), sunDir (THREE.Vector3), cfg, input, swell, riders,
- *         createPost(w,h) → Post, post (main Post), hud, simTime }
+ *         createPost(w,h) → Post, post (main Post), hud, simTime,
+ *         ocean (setWaveHook(glsl, uniforms), fft {disp, slope, uniforms, glsl, L, rot, N}), sky, envMap, sunLight,
+ *         waterUniforms (spread into materials using src/water/waterShading.glsl.js), gpuTimer, paused, capture }
  * Post.render(scene, camera, target = null, viewport = null)   viewport = {x,y,w,h} px of the drawing buffer
  * Step order per sim step: input.drainUntil(t) → swell.step → riders.step → fx.step → camera.step
  * Frame: systems.update(t) → camera.render(app) (main view + PiP) → hud.update
