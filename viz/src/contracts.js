@@ -213,7 +213,7 @@ float bcAmbient(vec2 xz, float t) {
  *   ASHORE = not in the water (RiderViews hides it); ENTER = swimming/paddling out to the lineup; LEAVE = heading out
  *   of the scene (surfers to the beach, animals out to sea), becomes ASHORE when it gets there.
  * @typedef {Object} RiderState
- * @property {number} id  @property {'surfer'|'dolphin'|'seal'} kind  @property {string} name
+ * @property {number} id  @property {'surfer'|'dolphin'|'seal'|'turtle'} kind  @property {string} name
  * @property {RiderStateName} state
  * @property {'cruise'|'carve'|'tube'|'porpoise'|'breach'|null} style
  * @property {string} action   animation cue: idle|paddle|swim|pop|trim|bottomTurn|lipHit|cutback|crouch|kickout|wipe|jump|dive|roll
@@ -230,8 +230,11 @@ float bcAmbient(vec2 xz, float t) {
  * A joining rider leaves ASHORE at the downbeat the level rose and reaches the lineup exactly cfg.beat.entryMeasures
  * measures later (measure length at that time). A leaving rider finishes any ride first, then takes the same time
  * to get out. A rider still ENTERing when asked to leave turns round.
- * Extra RiderState fields: present:boolean (false only when ASHORE), enterT, arriveT (planned lineup arrival).
- * Extra RideEvent types: 'enter' | 'arrive' | 'leave' | 'gone' | 'flock'.
+ * Extra RiderState fields: present:boolean (false only when ASHORE), enterT, arriveT (planned lineup arrival),
+ *   exitT (planned ASHORE time while LEAVE-ing, else null). A turn-round leave goes back the same way over the elapsed
+ *   entry time. step(t, dt, swell) without a beat = everyone in the water (old test suites). LINEUP → RETURN can
+ *   happen (riders idle 40–55 s move to their other zone).
+ * Extra RideEvent types: 'enter' | 'arrive' | 'leave' | 'gone' | 'flock' (all five carry pos:{x,y,z}).
  *   'flock' { t, riderId, pos:{x,y,z} }: the beat level changed (up or down) on the very downbeat this rider
  *   arrived at the lineup (arrival measure index = enter measure index + entryMeasures) → Fx releases a bird flock.
  */
